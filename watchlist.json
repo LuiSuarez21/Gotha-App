@@ -1,0 +1,8 @@
+{
+  "ntfy_topic": "gotha-ede464547619",
+  "cards": [
+    { "name": "Kasmina, Enigma Sage", "below": 3.00 },
+    { "name": "Ragavan, Nimble Pilferer", "below": 30.00 },
+    { "name": "Ragavan, Nimble Pilferer", "above": 150.00, "foil": true, "price": "trend" }
+  ]
+}
