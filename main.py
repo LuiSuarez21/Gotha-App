@@ -65,11 +65,11 @@ def fmt(price):
     return f"{float(price):>8.2f} €" if price else "       -  "
 
 
-def show_card(name, hist, with_chart):
+def lookup(name, hist):
+    """(exact name, printings with prices and history, reference date), or (None, [], None)."""
     exact_name = resolve_name(name)
     if not exact_name:
-        print(f"Card not found: {name}")
-        return
+        return None, [], None
 
     printings = get_printings(exact_name)
 
@@ -89,6 +89,14 @@ def show_card(name, hist, with_chart):
         c["foil"].setdefault(0, None)
         c["normal"][0] = c["normal"][0] or (float(p["eur"]) if p.get("eur") else None)
         c["foil"][0] = c["foil"][0] or (float(p["eur_foil"]) if p.get("eur_foil") else None)
+    return exact_name, printings, ref
+
+
+def show_card(name, hist, with_chart):
+    exact_name, printings, ref = lookup(name, hist)
+    if not exact_name:
+        print(f"Card not found: {name}")
+        return
 
     print(f"\n{exact_name} — {len(printings)} printings"
           + (f"  (Cardmarket prices up to {ref})" if ref else "") + "\n")

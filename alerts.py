@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-Daily price alerts: checks the cards in watchlist.json against Cardmarket's
-price guide and sends a phone notification (via ntfy.sh) for every card that
-reached its target price.
+Daily price alerts: checks the cards and sealed products in watchlist.json
+against Cardmarket's price guide and sends a phone notification (via ntfy.sh)
+for every one that reached its target price. It also saves today's prices of
+all sealed products (see sealed.py), so the sealed history grows every day.
 
 Usage:
     python alerts.py           (check the watchlist and notify)
@@ -19,6 +20,8 @@ from pathlib import Path
 import requests
 
 import main
+import sealed
+from catalog import Catalog
 from history import GUIDE_FIELDS, History
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -86,6 +89,29 @@ def check(config, hist):
     return hits, errors, link
 
 
+def check_sealed(config, hist):
+    """Same as check(), for the "sealed" section (prices: "trend" by default)."""
+    hits, errors = [], []
+    for item in config.get("sealed", []):
+        if "below" not in item and "above" not in item:
+            continue
+        field = item.get("price", "trend")
+        if field not in GUIDE_FIELDS:
+            errors.append(f"⚠ {item.get('name')}: 'price' must be one of {', '.join(GUIDE_FIELDS)}")
+            continue
+        g = hist.guide(item["id"]).get("normal", {})
+        price = g.get(field) or g.get("low")
+        if not price:
+            print(f"  {item.get('name')}: no price found")
+            continue
+        print(f"  {item.get('name')}: {price:.2f} €")
+        if "below" in item and price <= item["below"]:
+            hits.append(f"↓ {item['name']}: {price:.2f} €, target ≤ {item['below']:.2f} €")
+        elif "above" in item and price >= item["above"]:
+            hits.append(f"↑ {item['name']}: {price:.2f} €, target ≥ {item['above']:.2f} €")
+    return hits, errors
+
+
 def run():
     config = json.loads(WATCHLIST.read_text(encoding="utf-8"))
     topic = config["ntfy_topic"]
@@ -98,10 +124,17 @@ def run():
     print(f"\n=== {datetime.now():%Y-%m-%d %H:%M} ===")
     hist = History()
     print(f"Price guide from {hist.guide_date}")
+    catalog = Catalog()
+    print(f"Sealed prices recorded: {sealed.Tracker().record(hist, catalog.sealed_ids())}")
     hits, errors, link = check(config, hist)
+    sealed_hits, sealed_errors = check_sealed(config, hist)
+    if sealed_hits:
+        link = None  # several kinds of hits: no single link to open
+    hits += sealed_hits
+    errors += sealed_errors
 
     if hits or errors:
-        title = f"Gotha: {len(hits)} card(s) hit your price" if hits else "Gotha: price check problems"
+        title = f"Gotha: {len(hits)} item(s) hit your price" if hits else "Gotha: price check problems"
         notify(topic, title, "\n".join(hits + errors), click=link if len(hits) == 1 else None)
         print(f"Notification sent ({len(hits)} hit(s), {len(errors)} error(s)).")
     else:

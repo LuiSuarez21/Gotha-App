@@ -1,0 +1,749 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gotha</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #f6f5f2; --card: #ffffff; --ink: #1d1d1f; --muted: #6e6e73;
+    --line: #e4e2dc; --up: #1a8f4c; --down: #c8372d; --flat: #8a7a3c;
+    --normal: #2f6fdb; --foil: #b7791f; --accent: #6b4fd8; --mark: #ffe58a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141416; --card: #1d1d20; --ink: #ececef; --muted: #9a9aa2;
+      --line: #2c2c31; --up: #3fbf74; --down: #ef6a5f; --flat: #d6c27a;
+      --normal: #6aa0ff; --foil: #e3b04b; --accent: #9d87ff; --mark: #5b4a12;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 20px 16px 60px; }
+  a { color: var(--accent); }
+  button, input, select { font: inherit; color: var(--ink); }
+  input, select { padding: 7px 10px; border-radius: 8px; border: 1px solid var(--line);
+                  background: var(--card); min-width: 0; }
+  button { padding: 7px 14px; border-radius: 8px; border: 1px solid var(--line);
+           background: var(--card); cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .muted { color: var(--muted); }
+  .up { color: var(--up); } .down { color: var(--down); } .flat { color: var(--flat); }
+
+  /* Header and tabs */
+  .top { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; margin-bottom: 18px; }
+  .brand { font-size: 24px; font-weight: 700; letter-spacing: -.02em; }
+  .tabs { display: flex; gap: 4px; background: var(--card); border: 1px solid var(--line);
+          border-radius: 10px; padding: 3px; }
+  .tabs button { border: 0; background: none; padding: 6px 14px; border-radius: 7px; color: var(--muted); }
+  .tabs button[aria-selected="true"] { background: color-mix(in srgb, var(--accent) 14%, transparent);
+                                       color: var(--ink); font-weight: 600; }
+  .top .status { margin-left: auto; font-size: 12px; color: var(--muted); }
+
+  .panel { background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+           padding: 18px; margin-top: 18px; }
+  .panel h2 { font-size: 17px; margin: 0 0 4px; }
+  .hint { color: var(--muted); font-size: 13px; margin: 0 0 12px; }
+
+  /* Search */
+  .search { position: relative; }
+  .search input { width: 100%; font-size: 18px; padding: 13px 16px 13px 44px; border-radius: 12px; }
+  .search svg { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--muted); }
+  .search kbd { position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+                font: 12px ui-monospace, monospace; color: var(--muted); border: 1px solid var(--line);
+                border-radius: 5px; padding: 1px 6px; }
+  .filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg button { border: 0; border-radius: 0; padding: 6px 12px; background: var(--card); }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .seg button[aria-pressed="true"] { background: color-mix(in srgb, var(--accent) 14%, transparent); font-weight: 600; }
+  .seg .n { color: var(--muted); font-size: 12px; margin-left: 4px; font-variant-numeric: tabular-nums; }
+  .filters input.price { width: 84px; }
+  .filters input.set { width: 120px; }
+  .meta-line { font-size: 12px; color: var(--muted); margin: 8px 2px 0; min-height: 18px; }
+
+  .results { list-style: none; margin: 10px 0 0; padding: 0; background: var(--card);
+             border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  .results:empty { display: none; }
+  .results li { display: flex; gap: 12px; align-items: center; padding: 9px 14px; cursor: pointer;
+                border-bottom: 1px solid var(--line); }
+  .results li:last-child { border-bottom: 0; }
+  .results li[aria-selected="true"] { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+  .results .main { flex: 1; min-width: 0; }
+  .results .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .results .sub { font-size: 12px; color: var(--muted); }
+  .results .price { font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; }
+  .results .price small { display: block; font-size: 11px; color: var(--muted); }
+  mark { background: var(--mark); color: inherit; border-radius: 2px; }
+  .more { display: block; width: 100%; margin-top: 8px; color: var(--muted); }
+  .more[hidden] { display: none; }
+
+  /* Matching sets, recent searches and trending lists */
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .chips:empty { display: none; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; font-size: 13px;
+          border: 1px solid var(--line); border-radius: 99px; background: var(--card); max-width: 100%; }
+  .chip > span:not(.muted) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chip b { font: 600 12px ui-monospace, monospace; color: var(--accent); }
+  .chip .muted { font-size: 12px; white-space: nowrap; }
+  .chip button { border: 0; background: none; padding: 0; font-size: 13px; }
+  .chip button.x { color: var(--muted); font-size: 16px; line-height: 1; padding-left: 2px; }
+  .chip button.x:hover { color: var(--down); }
+  .discover h2 { display: flex; align-items: center; gap: 8px; }
+  .discover h2 button { margin-left: auto; font-size: 12px; padding: 3px 10px; font-weight: normal; }
+  .discover .chips { margin-top: 6px; }
+  .results.mini { margin-top: 0; }
+  .results.mini li { padding: 7px 12px; }
+  .badge { display: inline-block; font-size: 11px; padding: 0 7px; border-radius: 99px;
+           border: 1px solid var(--line); color: var(--muted); margin-right: 6px; }
+  .badge.sealed { border-color: color-mix(in srgb, var(--foil) 50%, transparent); color: var(--foil); }
+  .badge.card { border-color: color-mix(in srgb, var(--normal) 50%, transparent); color: var(--normal); }
+
+  /* Card detail: the chart page in a frame */
+  iframe { width: 100%; border: 0; display: block; min-height: 400px; border-radius: 14px; }
+  @media (max-width: 640px) {
+    .top { gap: 10px; }
+    .top .status { margin-left: 0; width: 100%; }
+    .tabs { max-width: 100%; overflow-x: auto; }
+    .tabs button { white-space: nowrap; padding: 6px 10px; }
+    .filters > select, .filters > input { flex: 1 1 110px; }
+    .search kbd { display: none; }
+    .panel { padding: 14px; }
+    /* Outlook signals: one block per signal instead of three narrow columns */
+    .signals, .signals tbody, .signals tr, .signals td { display: block; }
+    .signals tr { border-top: 1px solid var(--line); padding: 8px 0; }
+    .signals td { border-top: 0; padding: 2px 0; }
+    .signals td:first-child { white-space: normal; }
+  }
+
+  /* Sealed detail */
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-top: 12px; }
+  .kpi { background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+  .kpi .l { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+  .kpi .v { font-size: 21px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  h1 { font-size: 26px; margin: 0; letter-spacing: -.02em; }
+  .outlook-head { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; }
+  .pill { font-weight: 700; font-size: 18px; padding: 4px 14px; border-radius: 99px;
+          background: color-mix(in srgb, currentColor 12%, transparent); }
+  .gauge { position: relative; width: 200px; height: 8px; border-radius: 99px;
+           background: linear-gradient(90deg, var(--down), var(--line) 50%, var(--up)); }
+  .gauge i { position: absolute; top: -4px; width: 4px; height: 16px; border-radius: 2px;
+             background: var(--ink); transform: translateX(-2px); }
+  .signals { width: 100%; border-collapse: collapse; margin-top: 12px; }
+  .signals td { padding: 8px 6px; border-top: 1px solid var(--line); vertical-align: top; }
+  .signals td:first-child { white-space: nowrap; font-weight: 600; }
+  .bar { position: relative; width: 90px; height: 6px; background: var(--line); border-radius: 99px; margin-top: 8px; }
+  .bar b { position: absolute; top: 0; height: 6px; border-radius: 99px; }
+  .signals .w { font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .chart { position: relative; height: 280px; }
+  .track-form { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; }
+  .track-form label { display: flex; flex-direction: column; font-size: 12px; color: var(--muted); gap: 3px; }
+  .track-form input { width: 110px; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  .two > * { min-width: 0; }  /* long names get "…" instead of widening the column */
+  @media (max-width: 760px) { .two { grid-template-columns: 1fr; } }
+
+  /* Tables */
+  .tbl { overflow-x: auto; }
+  table.data { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  table.data th, table.data td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  table.data th { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; font-weight: 600; }
+  table.data td.n, table.data th.n { text-align: right; }
+  table.data tbody tr { cursor: pointer; }
+  table.data tbody tr:hover { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+  table.data tfoot td { font-weight: 650; border-bottom: 0; }
+
+  /* News */
+  .news { list-style: none; padding: 0; margin: 0; }
+  .news li { padding: 12px 0; border-top: 1px solid var(--line); }
+  .news li:first-child { border-top: 0; }
+  .news .src { font-size: 12px; color: var(--muted); }
+  .news .t { font-weight: 600; text-decoration: none; color: var(--ink); }
+  .news .t:hover { color: var(--accent); }
+  .news p { margin: 3px 0 0; font-size: 13px; color: var(--muted); }
+  .tag { font-size: 11px; padding: 0 7px; border-radius: 99px; background: var(--bg);
+         border: 1px solid var(--line); margin-left: 4px; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; background: var(--line); }
+  .dot.up { background: var(--up); } .dot.down { background: var(--down); }
+  .empty { color: var(--muted); font-style: italic; padding: 24px 0; text-align: center; }
+  .error { color: var(--down); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div class="brand">Gotha</div>
+    <div class="tabs" role="tablist">
+      <button role="tab" data-tab="search" aria-selected="true">Search</button>
+      <button role="tab" data-tab="tracker" aria-selected="false">Sealed tracker</button>
+      <button role="tab" data-tab="news" aria-selected="false">Market news</button>
+    </div>
+    <div class="status" id="status"></div>
+  </div>
+
+  <!-- ===== Search ===== -->
+  <section id="tab-search">
+    <div class="search">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input id="q" type="search" autocomplete="off" spellcheck="false" autofocus
+             placeholder="Search cards and sealed products: “ragavan”, “mh3 collector box”, “bloomburow” …"
+             role="combobox" aria-controls="results" aria-expanded="false">
+      <kbd>/</kbd>
+    </div>
+    <div class="filters">
+      <div class="seg" id="kind">
+        <button data-kind="" aria-pressed="true">All<span class="n" data-n=""></span></button>
+        <button data-kind="card" aria-pressed="false">Cards<span class="n" data-n="card"></span></button>
+        <button data-kind="sealed" aria-pressed="false">Sealed<span class="n" data-n="sealed"></span></button>
+      </div>
+      <select id="category" aria-label="Product type"><option value="">Any product type</option></select>
+      <input id="set" class="set" list="sets" placeholder="Set code" aria-label="Set code">
+      <datalist id="sets"></datalist>
+      <input id="min" class="price" type="number" min="0" step="any" placeholder="Min €" aria-label="Minimum price">
+      <input id="max" class="price" type="number" min="0" step="any" placeholder="Max €" aria-label="Maximum price">
+      <select id="sort" aria-label="Sort">
+        <option value="relevance">Best match</option>
+        <option value="price_desc">Price: high to low</option>
+        <option value="price_asc">Price: low to high</option>
+        <option value="change_desc">Biggest gainers (week)</option>
+        <option value="change_asc">Biggest droppers (week)</option>
+        <option value="newest">Newest</option>
+        <option value="name">Name</option>
+      </select>
+    </div>
+    <div class="chips" id="setrow" aria-label="Matching sets"></div>
+    <div class="meta-line" id="meta"></div>
+    <ul class="results" id="results" role="listbox"></ul>
+    <button class="more" id="more" hidden>Load more</button>
+    <div class="discover" id="discover" hidden></div>
+    <div id="detail"></div>
+  </section>
+
+  <!-- ===== Tracker ===== -->
+  <section id="tab-tracker" hidden>
+    <div class="panel">
+      <h2>Your sealed products</h2>
+      <p class="hint">Search a sealed product and press “Track” to add it. Prices are Cardmarket's trend price
+        (or the cheapest listing when there is no trend). Alert targets are checked by <code>python alerts.py</code>.</p>
+      <div class="tbl" id="tracker"></div>
+    </div>
+  </section>
+
+  <!-- ===== News ===== -->
+  <section id="tab-news" hidden>
+    <div class="panel">
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <h2 style="margin:0">Market news</h2>
+        <div class="seg" id="tagfilter"></div>
+        <button id="refresh" style="margin-left:auto">Refresh</button>
+      </div>
+      <p class="hint" id="news-hint" style="margin-top:8px"></p>
+      <ul class="news" id="news"></ul>
+    </div>
+  </section>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+const eur = v => v == null ? "–" : v.toLocaleString("en-IE", {style: "currency", currency: "EUR"});
+const pct = v => v == null ? "–" : (v > 0 ? "+" : "") + (v * 100).toFixed(1) + "%";
+const cls = v => v == null ? "" : v > 0.005 ? "up" : v < -0.005 ? "down" : "";
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const safeUrl = u => /^https?:\/\//.test(u || "") ? u : "#";
+
+async function api(path, body) {
+  const r = await fetch(path, body ? {method: "POST", body: JSON.stringify(body),
+                                      headers: {"Content-Type": "application/json"}} : {});
+  const data = await r.json();
+  if (data.error) throw new Error(data.error);
+  return data;
+}
+
+function ago(iso) {
+  if (!iso) return "";
+  const h = (Date.now() - new Date(iso)) / 36e5;
+  return h < 1 ? Math.max(1, Math.round(h * 60)) + " min ago" : h < 48 ? Math.round(h) + " h ago"
+       : Math.round(h / 24) + " days ago";
+}
+
+// ---------- tabs ----------
+function tab(name) {
+  document.querySelectorAll("[role=tab]").forEach(b => b.setAttribute("aria-selected", b.dataset.tab === name));
+  ["search", "tracker", "news"].forEach(t => $("#tab-" + t).hidden = t !== name);
+  if (name === "tracker") loadTracker();
+  if (name === "news") loadNews();
+  if (name === "search") $("#q").focus();
+}
+document.querySelectorAll("[role=tab]").forEach(b => b.onclick = () => tab(b.dataset.tab));
+
+// ---------- info ----------
+api("/api/info").then(info => {
+  $("#status").textContent = `Local index: ${(+info.index.products).toLocaleString()} products · ` +
+    `prices ${info.guide_date} · ${info.days_recorded} day(s) of sealed history`;
+  $("#sets").innerHTML = info.sets.map(s => `<option value="${esc(s.code)}">${esc(s.name)}</option>`).join("");
+  $("#category").innerHTML += info.categories.map(c => `<option>${esc(c)}</option>`).join("");
+  restore();
+}).catch(e => $("#status").innerHTML = `<span class="error">${esc(e.message)}</span>`);
+
+// ---------- live search ----------
+// Results come in pages of 30; the next page loads when "Load more" scrolls into view
+const state = {kind: "", results: [], active: -1, next: null};
+let pending = null, timer = null, lastKey = null, loadingMore = false;
+const cache = new Map();
+
+function params() {
+  const p = new URLSearchParams();
+  const val = id => $("#" + id).value.trim();
+  if (val("q")) p.set("q", val("q"));
+  if (state.kind) p.set("kind", state.kind);
+  for (const k of ["category", "set", "min", "max"]) if (val(k)) p.set(k, val(k));
+  if (val("sort") !== "relevance") p.set("sort", val("sort"));
+  return p;
+}
+
+function schedule() {
+  clearTimeout(timer);
+  timer = setTimeout(run, 110);  // wait for a short pause in typing
+}
+
+// One page of results, kept in memory; null if it was cancelled or failed
+async function fetchPage(key, offset) {
+  const url = "/api/search?" + key + (offset ? "&offset=" + offset : "");
+  if (cache.has(url)) return cache.get(url);
+  pending?.abort();  // drop the request of the previous key press
+  pending = new AbortController();
+  try {
+    const r = await fetch(url, {signal: pending.signal});
+    const data = await r.json();
+    if (data.error) throw new Error(data.error);
+    cache.set(url, data);
+    return data;
+  } catch (e) {
+    if (e.name !== "AbortError") $("#meta").innerHTML = `<span class="error">${esc(e.message)}</span>`;
+    return null;
+  }
+}
+
+async function run() {
+  const p = params();
+  const key = p.toString();
+  if (key === lastKey) return;
+  lastKey = key;
+  state.next = null;  // the old list's next page belongs to the old search
+  history.replaceState(null, "", key ? "#" + key : location.pathname);
+  if (!key) {
+    render({results: [], total: 0, facets: {kind: {}}, sets: [], next_offset: null});
+    drawDiscover();
+    return;
+  }
+  $("#discover").hidden = true;
+  const data = await fetchPage(key, 0);
+  if (data && key === lastKey) render(data);
+}
+
+async function loadMore() {
+  if (loadingMore || state.next == null || !lastKey) return;
+  loadingMore = true;
+  const key = lastKey;
+  $("#more").textContent = "Loading…";
+  const data = await fetchPage(key, state.next);
+  loadingMore = false;
+  $("#more").textContent = "Load more";
+  if (data && key === lastKey) render(data, true);
+}
+new IntersectionObserver(es => { if (es.some(e => e.isIntersecting)) loadMore(); },
+                         {rootMargin: "300px"}).observe($("#more"));
+$("#more").onclick = loadMore;
+
+// Wraps the parts of the name that match the query words in <mark>
+function highlight(name, q) {
+  const plain = s => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  const hay = plain(name).length === name.length ? plain(name) : name.toLowerCase();
+  const marks = new Array(name.length).fill(false);
+  for (const w of plain(q).split(/[^a-z0-9]+/).filter(Boolean)) {
+    for (let i = hay.indexOf(w); i >= 0; i = hay.indexOf(w, i + 1)) marks.fill(true, i, i + w.length);
+  }
+  let out = "", open = false;
+  [...name].forEach((ch, i) => {
+    if (marks[i] !== open) { out += marks[i] ? "<mark>" : "</mark>"; open = marks[i]; }
+    out += esc(ch);
+  });
+  return out + (open ? "</mark>" : "");
+}
+
+function rowHtml(r, i, q, selected) {
+  const chg = r.change == null ? "" : ` · <span class="${cls(r.change)}" title="${r.kind === "card"
+    ? "7-day vs 30-day average sale price" : "Since the price Gotha recorded a week or more ago"}">${pct(r.change)}</span>`;
+  return `
+    <li role="option" data-i="${i}" aria-selected="${selected}">
+      <div class="main">
+        <div class="name">${highlight(r.name, q)}</div>
+        <div class="sub"><span class="badge ${r.kind}">${r.kind === "card" ? "Card" : esc(r.category)}</span>${
+          r.kind === "card" ? `${r.printings} printing${r.printings > 1 ? "s" : ""}` : ""}${
+          r.set ? ` · ${esc(r.set.code || "")} ${esc(r.set.name)}` : ""}${
+          r.kind === "sealed" && r.released ? ` · ${esc(r.released.slice(0, 4))}` : ""}</div>
+      </div>
+      <div class="price">${eur(r.price)}<small>${r.kind === "card" ? "cheapest printing" : "trend"}${chg}</small></div>
+    </li>`;
+}
+
+// Shows a first page (replacing the list) or the next page (appended to it)
+function render(data, append = false) {
+  const from = append ? state.results.length : 0;
+  state.results = append ? state.results.concat(data.results) : data.results;
+  state.next = data.next_offset;
+  if (!append) state.active = data.results.length ? 0 : -1;
+  const q = $("#q").value;
+  const html = data.results.map((r, i) => rowHtml(r, from + i, q, from + i === state.active)).join("");
+  if (append) {
+    $("#results").insertAdjacentHTML("beforeend", html);
+  } else {
+    $("#results").innerHTML = html;
+    const f = data.facets.kind || {};
+    document.querySelectorAll("[data-n]").forEach(el => {
+      const n = el.dataset.n ? f[el.dataset.n] || 0 : (f.card || 0) + (f.sealed || 0);
+      el.textContent = data.total || params().get("q") ? n.toLocaleString() : "";
+    });
+    // Sets whose name or code matches: a click shows that set's products
+    $("#setrow").innerHTML = (data.sets || []).map(s => `
+      <button class="chip" data-code="${esc(s.code)}" title="Show the products of this set">
+        <b>${esc(s.code)}</b><span>${highlight(s.name, q)}</span>
+        <span class="muted">${esc((s.released || "").slice(0, 4))} · ${s.cards} cards${s.sealed ? `, ${s.sealed} sealed` : ""}</span>
+      </button>`).join("");
+  }
+  const shown = state.results.length;
+  $("#meta").textContent = params().toString()
+    ? `${data.total.toLocaleString()} result(s)${data.total > shown ? `, showing ${shown}` : ""} · ${data.ms} ms`
+    : "";
+  $("#more").hidden = state.next == null;
+  $("#q").setAttribute("aria-expanded", shown > 0);
+  // A short list can leave "Load more" on screen without a new scroll event: keep loading
+  requestAnimationFrame(() => {
+    const more = $("#more");
+    if (!more.hidden && more.getBoundingClientRect().top < innerHeight + 300) loadMore();
+  });
+}
+
+function move(d) {
+  if (!state.results.length) return;
+  if (d > 0 && state.active >= state.results.length - 3) loadMore();
+  state.active = (state.active + d + state.results.length) % state.results.length;
+  document.querySelectorAll("#results li").forEach((li, i) => li.setAttribute("aria-selected", i === state.active));
+  document.querySelector(`#results li[data-i="${state.active}"]`)?.scrollIntoView({block: "nearest"});
+}
+
+$("#q").addEventListener("input", schedule);
+$("#q").addEventListener("keydown", e => {
+  if (e.key === "ArrowDown") { e.preventDefault(); move(1); }
+  else if (e.key === "ArrowUp") { e.preventDefault(); move(-1); }
+  else if (e.key === "Enter" && state.active >= 0) { e.preventDefault(); open(state.results[state.active]); }
+  else if (e.key === "Escape") { $("#q").value = ""; schedule(); }
+});
+document.addEventListener("keydown", e => {
+  if (e.key === "/" && !["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement.tagName)) {
+    e.preventDefault(); tab("search"); $("#q").select();
+  }
+});
+for (const id of ["category", "set", "min", "max", "sort"]) $("#" + id).addEventListener("input", schedule);
+document.querySelectorAll("#kind button").forEach(b => b.onclick = () => {
+  state.kind = b.dataset.kind;
+  document.querySelectorAll("#kind button").forEach(x => x.setAttribute("aria-pressed", x === b));
+  $("#category").disabled = state.kind === "card";
+  schedule();
+});
+$("#results").addEventListener("click", e => {
+  const li = e.target.closest("li"); if (li) open(state.results[+li.dataset.i]);
+});
+$("#setrow").addEventListener("click", e => {
+  const b = e.target.closest("[data-code]"); if (!b) return;
+  addRecent($("#q").value);
+  $("#q").value = "";
+  $("#set").value = b.dataset.code;
+  schedule();
+  $("#q").focus();
+});
+
+// ---------- recent searches ----------
+// Kept in this browser only (Syncd keeps them on the phone): newest first,
+// no duplicates, at most 10. A search is remembered when it leads somewhere
+// (a product or a set is opened), so half-typed words don't fill the list.
+const RECENT_KEY = "gotha.recentSearches", RECENT_MAX = 10;
+
+function recent() {
+  try {
+    const v = JSON.parse(localStorage.getItem(RECENT_KEY) || "[]");
+    return Array.isArray(v) ? v.filter(s => typeof s === "string") : [];
+  } catch { return []; }
+}
+function saveRecent(list) {
+  try { localStorage.setItem(RECENT_KEY, JSON.stringify(list)); } catch { /* private window */ }
+}
+function addRecent(q) {
+  q = q.trim();
+  if (q) saveRecent([q, ...recent().filter(s => s.toLowerCase() !== q.toLowerCase())].slice(0, RECENT_MAX));
+}
+
+// ---------- empty search box: recent searches + this week's biggest movers ----------
+let trending = null, trendingLoading = false;  // {gainers, droppers} or {error}, loaded once per visit
+
+function drawDiscover() {
+  const box = $("#discover");
+  box.hidden = !!params().toString() || $("#detail").childElementCount > 0;
+  if (box.hidden) return;
+  const list = recent();
+  const movers = (key, title) => `
+    <section class="panel">
+      <h2>${title}</h2>
+      ${!trending ? '<div class="empty">Loading…</div>'
+        : trending.error ? `<div class="error">${esc(trending.error)}</div>`
+        : trending[key].length ? `<ul class="results mini" data-list="${key}">${
+            trending[key].map((r, i) => rowHtml(r, i, "", false)).join("")}</ul>`
+        : '<div class="empty">No price changes yet.</div>'}
+    </section>`;
+  box.innerHTML = `
+    ${list.length ? `<section class="panel">
+      <h2>Recent searches <button id="clear-recent">Clear</button></h2>
+      <div class="chips">${list.map(s => `<span class="chip">
+        <button data-q="${esc(s)}">${esc(s)}</button>
+        <button class="x" data-rm="${esc(s)}" title="Remove" aria-label="Remove ${esc(s)}">×</button></span>`).join("")}</div>
+    </section>` : ""}
+    <div class="two">${movers("gainers", "Biggest gainers this week")}${movers("droppers", "Biggest droppers this week")}</div>
+    <p class="hint" style="margin-top:8px">Cards: 7-day vs 30-day average sale price of the cheapest printing.
+      Sealed: today's price vs the price Gotha recorded a week or more ago. Products under 2 €, tokens and codes are left out.</p>`;
+  if (!trending && !trendingLoading) loadTrending();
+}
+
+async function loadTrending() {
+  trendingLoading = true;
+  try {
+    const [g, d] = await Promise.all(["change_desc", "change_asc"].map(s =>
+      api(`/api/search?sort=${s}&min=2&extras=hide&limit=8`)));
+    trending = {gainers: g.results, droppers: d.results};
+  } catch (e) {
+    trending = {error: e.message};
+  }
+  trendingLoading = false;
+  drawDiscover();
+}
+
+$("#discover").addEventListener("click", e => {
+  const t = e.target.closest("button, li"); if (!t) return;
+  if (t.id === "clear-recent") { saveRecent([]); drawDiscover(); }
+  else if (t.dataset.rm != null) { saveRecent(recent().filter(s => s !== t.dataset.rm)); drawDiscover(); }
+  else if (t.dataset.q != null) { $("#q").value = t.dataset.q; schedule(); $("#q").focus(); }
+  else if (t.matches("li")) open(trending[t.closest("[data-list]").dataset.list][+t.dataset.i]);
+});
+
+// Search from the address bar (#q=...&kind=...), so a reload keeps the search
+function restore() {
+  const p = new URLSearchParams(location.hash.slice(1));
+  for (const k of ["q", "category", "set", "min", "max", "sort"]) if (p.get(k)) $("#" + k).value = p.get(k);
+  const kind = p.get("kind") || "";
+  document.querySelector(`#kind button[data-kind="${kind}"]`)?.click();
+  if (p.get("sealed")) openSealed(+p.get("sealed"));
+  else if (p.get("card")) openCard(p.get("card"));
+  else schedule();
+  if (p.get("tab")) tab(p.get("tab"));
+}
+
+// ---------- detail ----------
+let sealedChart = null;
+
+function open(r) {
+  if (!r) return;
+  addRecent($("#q").value);  // remember searches that led to a product
+  $("#results").innerHTML = "";
+  $("#setrow").innerHTML = "";
+  $("#discover").hidden = true;
+  $("#more").hidden = true;
+  state.next = null;
+  $("#q").setAttribute("aria-expanded", "false");
+  // The address bar links to the open product (#card=... or #sealed=...)
+  const hash = r.kind === "card" ? "card=" + encodeURIComponent(r.name) : "sealed=" + r.ref;
+  history.replaceState(null, "", "#" + hash);
+  lastKey = null;
+  if (r.kind === "card") openCard(r.name); else openSealed(r.ref);
+}
+
+async function openCard(name) {
+  const box = $("#detail");
+  box.innerHTML = `<div class="panel muted">Looking up <b>${esc(name)}</b> on Scryfall…</div>`;
+  try {
+    await api("/api/card", {name});
+    // index.html reads data.js (just rewritten by the server); reload it right away
+    box.innerHTML = `<iframe id="frame" src="index.html" title="Card prices"></iframe>`;
+    const frame = $("#frame");
+    frame.onload = () => {
+      const doc = frame.contentDocument;
+      const fit = () => frame.style.height = doc.documentElement.scrollHeight + "px";
+      new ResizeObserver(fit).observe(doc.body);
+      fit();
+    };
+  } catch (e) {
+    box.innerHTML = `<div class="panel error">${esc(e.message)}</div>`;
+  }
+}
+
+async function openSealed(id) {
+  const box = $("#detail");
+  box.innerHTML = `<div class="panel muted">Loading…</div>`;
+  let d;
+  try { d = await api("/api/sealed?id=" + id); }
+  catch (e) { box.innerHTML = `<div class="panel error">${esc(e.message)}</div>`; return; }
+  const p = d.product, g = d.guide, o = d.outlook, t = d.tracked;
+  const set = p.set || {};
+  const oc = o.label === "Likely up" ? "up" : o.label === "Likely down" ? "down" : "flat";
+  const link = "https://www.cardmarket.com/en/Magic/Products/Search?searchString=" + encodeURIComponent(p.name);
+  box.innerHTML = `
+    <section class="panel">
+      <h1>${esc(p.name)}</h1>
+      <div class="muted">${esc(p.category)} · ${esc(set.code ? set.code + " · " : "")}${esc(set.name || "")}
+        · released ${esc(set.released || p.released || "?")} · <a href="${link}" target="_blank" rel="noopener">Cardmarket ↗</a></div>
+      <div class="kpis">
+        <div class="kpi"><div class="l">Trend</div><div class="v">${eur(g.trend)}</div></div>
+        <div class="kpi"><div class="l">From (cheapest)</div><div class="v">${eur(g.low)}</div></div>
+        <div class="kpi"><div class="l">Average sale</div><div class="v">${eur(g.avg)}</div></div>
+        <div class="kpi"><div class="l">90-day estimate</div><div class="v ${oc}">${o.projection ? eur(o.projection.mid) : "–"}</div>
+          <div class="muted" style="font-size:12px">${o.projection ? `${eur(o.projection.low)} – ${eur(o.projection.high)}` : ""}</div></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="outlook-head">
+        <h2 style="margin:0">Price outlook</h2>
+        <span class="pill ${oc}">${esc(o.label)}</span>
+        <div class="gauge" title="Score ${o.score}"><i style="left:${(o.score + 1) * 50}%"></i></div>
+        <span class="muted">score ${o.score > 0 ? "+" : ""}${o.score.toFixed(2)} · ${esc(o.confidence)} confidence</span>
+      </div>
+      <p class="hint" style="margin-top:8px">A transparent heuristic, not financial advice: each signal is scored
+        from −1 to +1 and weighted; signals with weight 0 had no data yet. It gets more reliable as Gotha records more days.</p>
+      <table class="signals">${o.signals.map(s => `
+        <tr><td>${esc(s.name)}<div class="bar"><b style="${s.score >= 0
+            ? `left:50%;width:${s.score * 50}%;background:var(--up)` : `left:${50 + s.score * 50}%;width:${-s.score * 50}%;background:var(--down)`}"></b></div></td>
+          <td class="w">${s.score > 0 ? "+" : ""}${s.score.toFixed(2)} × ${s.weight}</td>
+          <td>${esc(s.text)}</td></tr>`).join("")}
+      </table>
+    </section>
+
+    <div class="two">
+      <section class="panel">
+        <h2>Recorded price history</h2>
+        <p class="hint">Saved by Gotha every day it runs (Cardmarket keeps no sealed history).</p>
+        <div class="chart" id="sbox"></div>
+      </section>
+      <section class="panel">
+        <h2>Track this product</h2>
+        <p class="hint">${t ? "You are tracking this product." : "Add it to your sealed tracker."} Alerts go to your phone like card alerts.</p>
+        <form class="track-form" id="track">
+          <label>Quantity<input name="qty" type="number" min="1" value="${t?.qty ?? 1}"></label>
+          <label>Paid per unit (€)<input name="paid" type="number" min="0" step="any" value="${t?.paid ?? ""}"></label>
+          <label>Alert if ≤ (€)<input name="below" type="number" min="0" step="any" value="${t?.below ?? ""}"></label>
+          <label>Alert if ≥ (€)<input name="above" type="number" min="0" step="any" value="${t?.above ?? ""}"></label>
+          <button class="primary">${t ? "Save" : "Track"}</button>
+          ${t ? '<button type="button" id="untrack">Stop tracking</button>' : ""}
+        </form>
+        <h2 style="margin-top:20px">Most valuable cards in the set</h2>
+        <div class="muted" style="font-size:13px">${o.chase.length ? o.chase.map(c => `${esc(c.name)} <b>${eur(c.price)}</b>`).join(" · ") : "No singles found for this set."}</div>
+      </section>
+    </div>
+
+    <section class="panel">
+      <h2>News & posts about this set</h2>
+      ${newsList(o.news, "No recent headline or post mentions this set.")}
+    </section>`;
+
+  // Chart of the recorded days
+  sealedChart?.destroy(); sealedChart = null;
+  const pts = d.history.filter(h => h.trend || h.low);
+  const sbox = $("#sbox");
+  if (pts.length < 2) {
+    sbox.innerHTML = `<div class="empty">${pts.length} day recorded so far. Run Gotha on more days to build the chart.</div>`;
+  } else {
+    sbox.innerHTML = '<canvas></canvas>';
+    const line = (label, key, color) => ({label, data: pts.map(h => h[key]), borderColor: color,
+      backgroundColor: color + "22", tension: .25, spanGaps: true, pointRadius: pts.length > 30 ? 0 : 3});
+    sealedChart = new Chart(sbox.querySelector("canvas"), {
+      type: "line",
+      data: {labels: pts.map(h => h.day), datasets: [line("Trend", "trend", css("--normal")), line("Cheapest", "low", css("--foil"))]},
+      options: {maintainAspectRatio: false, interaction: {mode: "index", intersect: false},
+        scales: {y: {ticks: {callback: v => eur(v)}, grid: {color: css("--line")}}, x: {grid: {display: false}}},
+        plugins: {tooltip: {callbacks: {label: c => `${c.dataset.label}: ${eur(c.parsed.y)}`}}}},
+    });
+  }
+
+  $("#track").onsubmit = async e => {
+    e.preventDefault();
+    const f = Object.fromEntries(new FormData(e.target));
+    try { await api("/api/track", {id: p.ref, ...f}); openSealed(id); }
+    catch (err) { alert(err.message); }
+  };
+  $("#untrack")?.addEventListener("click", async () => { await api("/api/untrack", {id: p.ref}); openSealed(id); });
+  box.scrollIntoView({behavior: "smooth", block: "start"});
+}
+
+// ---------- tracker ----------
+async function loadTracker() {
+  const el = $("#tracker");
+  el.innerHTML = '<div class="empty">Loading…</div>';
+  let d;
+  try { d = await api("/api/tracked"); } catch (e) { el.innerHTML = `<div class="error">${esc(e.message)}</div>`; return; }
+  if (!d.items.length) { el.innerHTML = '<div class="empty">Nothing tracked yet. Search a booster box, bundle or deck and press “Track”.</div>'; return; }
+  const sum = k => d.items.reduce((a, r) => a + (r[k] || 0), 0);
+  el.innerHTML = `<table class="data">
+    <thead><tr><th>Product</th><th>Set</th><th class="n">Qty</th><th class="n">Paid</th><th class="n">Price</th>
+      <th class="n" title="Change since the latest recorded day at least a week ago">Change</th><th class="n">Value</th><th class="n">Profit/loss</th><th>Outlook</th><th>Alert</th></tr></thead>
+    <tbody>${d.items.map(r => {
+      const o = r.outlook || {};
+      const oc = o.label === "Likely up" ? "up" : o.label === "Likely down" ? "down" : "flat";
+      const hit = (r.below != null && r.price != null && r.price <= r.below) || (r.above != null && r.price != null && r.price >= r.above);
+      return `<tr data-id="${r.id}"><td>${esc(r.name)}<div class="muted" style="font-size:12px">${esc(r.category || "")}</div></td>
+        <td>${esc(r.set?.code || "")}</td><td class="n">${r.qty}</td><td class="n">${eur(r.paid)}</td>
+        <td class="n">${eur(r.price)}</td><td class="n ${cls(r.change7)}">${pct(r.change7)}${r.since ? `<div class="muted" style="font-size:11px">since ${esc(r.since)}</div>` : ""}</td>
+        <td class="n">${eur(r.value)}</td><td class="n ${cls(r.pl)}">${eur(r.pl)}</td>
+        <td class="${oc}">${esc(o.label || "–")}</td>
+        <td>${[r.below != null ? "≤ " + eur(r.below) : "", r.above != null ? "≥ " + eur(r.above) : ""].filter(Boolean).join(" ")}${hit ? " 🔔" : ""}</td></tr>`;
+    }).join("")}</tbody>
+    <tfoot><tr><td colspan="6">Total</td><td class="n">${eur(sum("value"))}</td>
+      <td class="n ${cls(sum("pl"))}">${eur(sum("pl"))}</td><td colspan="2"></td></tr></tfoot></table>`;
+  el.querySelectorAll("tbody tr").forEach(tr => tr.onclick = () => { tab("search"); openSealed(+tr.dataset.id); });
+}
+
+// ---------- news ----------
+let newsData = null, newsTag = "";
+const TAGS = [["", "All"], ["sealed", "Sealed"], ["reprint", "Reprints"], ["ban", "Bans"], ["announcement", "Announcements"], ["price", "Prices"]];
+
+function newsList(items, empty) {
+  if (!items.length) return `<div class="empty">${esc(empty)}</div>`;
+  return `<ul class="news">${items.map(i => `<li>
+    <div class="src"><span class="dot ${i.sentiment > 0 ? "up" : i.sentiment < 0 ? "down" : ""}"
+      title="Tone ${i.sentiment.toFixed(2)}${i.words.length ? ": " + esc(i.words.join(", ")) : ""}"></span>${esc(i.source)} · ${ago(i.date)}
+      ${i.tags.map(t => `<span class="tag">${esc(t)}</span>`).join("")}</div>
+    <a class="t" href="${esc(safeUrl(i.link))}" target="_blank" rel="noopener">${esc(i.title)}</a>
+    ${i.summary && i.summary !== i.title ? `<p>${esc(i.summary)}</p>` : ""}</li>`).join("")}</ul>`;
+}
+
+function drawNews() {
+  const items = newsData.items.filter(i => !newsTag || i.tags.includes(newsTag));
+  $("#news").outerHTML = `<div id="news">${newsList(items, "No news with this tag.")}</div>`;
+  $("#news-hint").innerHTML = `Updated ${ago(new Date(newsData.fetched * 1000).toISOString())}. ` +
+    `Sources: MTGGoldfish, Google News, Reddit. The coloured dot is a simple word-based tone (green positive, red negative).` +
+    (newsData.errors.length ? ` <span class="error">Unavailable now: ${esc(newsData.errors.join("; "))}</span>` : "");
+}
+
+async function loadNews(refresh) {
+  $("#tagfilter").innerHTML = TAGS.map(([k, l]) => `<button data-tag="${k}" aria-pressed="${k === newsTag}">${l}</button>`).join("");
+  $("#tagfilter").querySelectorAll("button").forEach(b => b.onclick = () => { newsTag = b.dataset.tag; loadNews(); });
+  if (!newsData || refresh) {
+    $("#news-hint").textContent = "Loading…";
+    try { newsData = await api("/api/news" + (refresh ? "?refresh=1" : "")); }
+    catch (e) { $("#news-hint").innerHTML = `<span class="error">${esc(e.message)}</span>`; return; }
+  }
+  drawNews();
+}
+$("#refresh").onclick = () => loadNews(true);
+</script>
+</body>
+</html>

@@ -31,14 +31,16 @@ IDS_URL = "https://mtgjson.com/api/v5/csv/cardIdentifiers.csv.xz"
 GUIDE_URL = "https://downloads.s3.cardmarket.com/productCatalog/priceGuide/price_guide_1.json"
 MAX_AGE_HOURS = 20  # MTGJSON and Cardmarket update once a day
 
-# Price guide fields kept, in database column order ("-foil" is added for foil)
-GUIDE_FIELDS = ("low", "trend", "avg1", "avg7", "avg30")
+# Price guide fields kept, in database column order ("-foil" is added for foil).
+# Sealed products only have low, trend and avg (average sale price), not avg1/7/30.
+GUIDE_FIELDS = ("low", "trend", "avg1", "avg7", "avg30", "avg")
 
 
 def _download(url, dest):
     with requests.get(url, stream=True, timeout=60) as r:
         r.raise_for_status()
-        total = int(r.headers.get("Content-Length", 0))
+        # A compressed transfer (gzip) has a Content-Length smaller than the real file
+        total = 0 if r.headers.get("Content-Encoding") else int(r.headers.get("Content-Length", 0))
         done = 0
         with open(dest, "wb") as f:
             for chunk in r.iter_content(1 << 20):
@@ -164,7 +166,8 @@ class History:
                 if not DB.exists():
                     raise
                 print(f"Warning: update failed ({e}); using cached data.")
-        self.con = sqlite3.connect(DB)
+        # check_same_thread=False: the app server (server.py) reads it from several threads
+        self.con = sqlite3.connect(DB, check_same_thread=False)
         row = self.con.execute("SELECT value FROM meta WHERE key = 'guide_date'").fetchone()
         self.guide_date = row[0] if row else None
 
@@ -178,7 +181,8 @@ class History:
     def guide(self, cardmarket_id):
         """Today's price guide for one Cardmarket product (or {}).
 
-        {"normal": {"low": ..., "trend": ..., "avg1": ..., "avg7": ..., "avg30": ...}, "foil": {...}}
+        {"normal": {"low": ..., "trend": ..., "avg1": ..., "avg7": ..., "avg30": ..., "avg": ...},
+         "foil": {...}}
         """
         if not cardmarket_id:
             return {}
@@ -192,12 +196,13 @@ class History:
 
 
 def _has_guide():
-    """True if the cache already has the price guide (older caches don't)."""
+    """True if the cache already has the price guide with every field (older caches don't)."""
     if not DB.exists():
         return False
     con = sqlite3.connect(DB)
     try:
-        return bool(con.execute("SELECT 1 FROM sqlite_master WHERE name = 'guide'").fetchone())
+        columns = {r[1] for r in con.execute("PRAGMA table_info(guide)")}
+        return all(f in columns for f in GUIDE_FIELDS)
     finally:
         con.close()
 

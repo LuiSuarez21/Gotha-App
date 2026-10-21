@@ -27,6 +27,10 @@ Modern Horizons 2 Timeshifts   H2R   11    │     45.40 €    45.78 €    42.
 - **Live chart page**: a single web page (Chart.js) with the 90-day price history per printing, price cards, and a colour-coded table (green = price went up, red = went down). It opens once in Firefox (or the default browser) and then **updates itself** every time you search for another card.
 - **Daily phone alerts**: get a push notification when a card on your watchlist drops below (or rises above) a target price.
 - **Small local cache**: the large price dataset is downloaded at most once a day and stored in a compressed SQLite database (~22 MB), so later lookups are instant.
+- **Gotha app** (`python server.py`): a browser app with **live search as you type** over every Magic product on Cardmarket (~128,000 cards and sealed products), with ranking, typo tolerance, filters, matching sets, endless scrolling, recent searches and this week's biggest price movers.
+- **Sealed product tracker**: booster boxes, bundles, decks, Secret Lairs… with quantity, price paid, profit/loss and phone alerts. Gotha records their prices every day, because nobody publishes sealed price history for free.
+- **Price outlook for sealed products**: a transparent score built from price momentum, product age, reprint risk, tournament play and news/social tone, with the evidence behind every signal.
+- **Market news**: latest headlines and posts from MTGGoldfish, Google News and Reddit, tagged (reprints, bans, announcements, sealed, prices).
 
 ---
 
@@ -48,6 +52,16 @@ python main.py "Ragavan" --no-chart         # skip the chart page
 
 The **first run** (and the first run of each day) downloads the price history from MTGJSON, which takes about 2 minutes. After that, lookups only hit the Scryfall API and are fast.
 
+Or start the **Gotha app** in the browser:
+
+```bash
+python server.py                 # opens http://127.0.0.1:8765
+python server.py --no-browser    # start only
+python server.py --port 9000     # another port (the next free one is used if it's taken)
+```
+
+The server only listens on this computer (127.0.0.1). Stop it with Ctrl+C.
+
 ---
 
 ## Project structure
@@ -55,19 +69,29 @@ The **first run** (and the first run of each day) downloads the price history fr
 ```
 Gotha (MTG Fetch Prices App)/
 ├── main.py          # Entry point: CLI, Scryfall API calls, terminal table
+├── server.py        # Entry point: the Gotha app (local web server + JSON API)
 ├── history.py       # Downloads MTGJSON price history and caches it in SQLite
+├── catalog.py       # Local search index of every Cardmarket product + ranking
+├── sealed.py        # Sealed price history, tracker and price outlook
+├── market.py        # News feeds, sentiment and tournament staples
 ├── chart.py         # Writes the chart data for the web page and opens it in the browser
 ├── alerts.py        # Daily price check: sends phone notifications for the watchlist
-├── watchlist.json   # Your cards and target prices (+ your private ntfy topic)
+├── watchlist.json   # Your cards, sealed products and targets (+ your private ntfy topic)
 ├── web/
+│   ├── app.html     # The Gotha app: search, sealed tracker, market news
 │   ├── index.html   # The chart page (fixed template, never rewritten)
 │   └── data.js      # Generated: data of the last card searched (rewritten on each search)
+├── data/
+│   └── sealed_history.sqlite  # Generated: daily sealed prices recorded by Gotha (keep it!)
 └── cache/
     ├── prices.sqlite   # Generated: compressed price history + price guide (refreshed daily)
+    ├── catalog.sqlite  # Generated: search index (refreshed daily)
+    ├── news.json       # Generated: news cache (1 hour)
+    ├── staples.json    # Generated: tournament staples cache (1 day)
     └── alerts.log      # Generated: output of the scheduled daily checks
 ```
 
-`cache/` and `web/data.js` are created automatically and can be deleted safely at any time.
+`cache/` and `web/data.js` are created automatically and can be deleted safely at any time. **`data/` can't be rebuilt**: it holds the sealed price history Gotha recorded, one day at a time.
 
 ---
 
@@ -166,6 +190,68 @@ The page `web/index.html` is a **fixed template**: Python never rewrites it. Onl
 
 ---
 
+## The Gotha app (`server.py`)
+
+`server.py` loads the same price cache as `main.py`, builds the search index, records today's sealed prices and serves `web/app.html` with a small JSON API (Python's built-in `http.server`, one thread per request):
+
+| Endpoint | Does |
+|---|---|
+| `GET /api/search?q=&kind=&category=&set=&min=&max=&sort=&offset=&limit=&extras=hide` | Ranked search with filters, counts per kind and matching sets, one page at a time |
+| `GET /api/info` | Index size and date, set codes and product types for the filters |
+| `POST /api/card {"name"}` | Scryfall lookup, then rewrites `data.js` (the chart page shown in the app) |
+| `GET /api/sealed?id=` | Prices, recorded history, outlook and news for one sealed product |
+| `GET /api/tracked` | Your tracked sealed products with value and profit/loss |
+| `POST /api/track` / `POST /api/untrack` | Add/update or remove a tracked product (saved in `watchlist.json`) |
+| `GET /api/news?refresh=1` | Latest market news |
+
+### Live search, ranking, filters and local index (`catalog.py`)
+
+- **Local index.** Once a day, `catalog.py` downloads Cardmarket's free product lists (singles and non-singles) and MTGJSON's `SetList.json`, and builds `cache/catalog.sqlite`. Cards are grouped by Cardmarket's *metacard* id (one entry per card, with all its printings and its cheapest price); each sealed product is its own entry. Sets that MTGJSON doesn't link to Cardmarket get their name from what their sealed products have in common ("Star Trek Play Booster Box" + "Star Trek Collector Booster Box" → *Star Trek*).
+- **Full-text search.** Names are normalised (lower case, no accents or punctuation) and indexed with SQLite **FTS5's trigram tokenizer**, which finds any part of a name in a few milliseconds. If too few names contain the text, the names that share the most 3-letter pieces with it are taken as **typo candidates**. Queries of 1–2 letters use a prefix search. A set code (`mh3`, `blb`) also finds that set's products.
+- **Ranking.** Exact name > name starts with the query > every word starts a word of the name > text found inside the name > close spelling (`difflib` similarity, at least 0.72). Ties go to more popular entries (higher price, more printings) and shorter names. Tokens and Art Series cards come after the real card.
+- **Filters**: cards / sealed (with counts), product type (booster box, bundle, deck…), set code, price range, and sort by price, **biggest gainers / droppers of the week**, newest or name.
+- **Weekly price change.** Every entry gets a change used by the gainers/droppers sorts and shown next to its price. Cards: the 7-day vs the 30-day average sale price of the cheapest printing (from the price guide). Sealed products: the guide has no averages for them, so today's price is compared with the price Gotha recorded at least a week ago (none until Gotha has run on two days a week apart). Thin markets jump around: one odd sale can move Cardmarket's trend a lot.
+- **Matching sets.** Above the results, up to 6 sets whose code or name matches the text (typos too: `bloomburow` → *BLB Bloomburrow*), with their number of cards and sealed products. Clicking one shows that set's products.
+- **Pages.** Results come 30 at a time (`offset` / `next_offset` in the API); the next page loads when you scroll to the end of the list.
+- **Empty search box.** Shows your **recent searches** (the last 10, newest first, no duplicates; remove one with × or all with *Clear*) and this week's **biggest gainers and droppers** (products from 2 €, without tokens, Art Series, online codes and rules tips: `extras=hide`). A search is remembered when it leads somewhere (you open a product or a set), so half-typed words don't fill the list. Recent searches are kept in the browser (`localStorage`), not in a file.
+- **As you type.** The page waits for a 110 ms pause, cancels the request from the previous key press (`AbortController`), keeps answers in memory, and highlights the matching letters. ↑/↓ and Enter pick a result; `/` jumps to the search box; Esc clears it. The search is kept in the address bar (`#q=…`), and `#card=…` / `#sealed=…` link straight to a product.
+
+### Sealed tracker and price history (`sealed.py`)
+
+Cardmarket's price guide only has *today's* numbers for sealed products (cheapest listing, trend and average sale price; no 1/7/30-day averages), and MTGJSON has no Cardmarket history for them. So every time `server.py` or `alerts.py` runs, Gotha saves the prices of all ~5,000 sealed products in `data/sealed_history.sqlite`, once per guide date. If an old `cache/price_guide_1.json` is around, its day is imported once too.
+
+Press **Track** on a sealed product to add it to `watchlist.json`:
+
+```json
+"sealed": [
+  { "id": 758483, "name": "Modern Horizons 3 Collector Booster Box", "qty": 2, "paid": 650.0, "below": 600.0 }
+]
+```
+
+The **Sealed tracker** tab shows each product's price, the change since the latest recorded day at least a week ago, total value, profit/loss and outlook.
+
+### Price outlook
+
+**This is not financial advice or a guarantee.** It is a transparent score: each signal goes from −1 to +1, has a weight, and shows the numbers it used. A signal with no data gets weight 0.
+
+| Signal | Based on | Weight |
+|---|---|---|
+| Momentum | Cardmarket trend vs average sale price (7 vs 30-day average for singles) | 1.5–2 |
+| Recorded trend | Slope of Gotha's own daily history (from 7 days of data on) | 2 |
+| Listings vs trend | Cheapest listing far below the trend = sellers undercutting | 0.5 |
+| Product age | New products usually fall after release; out-of-print ones (12+ months) tend to rise | 1.5 |
+| Reprint risk | Valuable cards (≥ 10 €) of the set that were never reprinted, reprint-type sets coming in the next 6 months (MTGJSON), headlines tagged "reprint" | 1 |
+| Tournament play | Cards of the set among the most played in Standard, Pioneer, Modern, Legacy, Pauper and Commander (MTGGoldfish format staples, % of decks) | 1.5 |
+| News & social sentiment | Word-based tone of headlines and Reddit posts that mention the set | 1 |
+
+The weighted average gives **Likely up** (> 0.2), **Likely down** (< −0.2) or **Sideways**, and a rough 90-day range around today's price. Confidence stays **low** until Gotha has at least 30 days of recorded history, so let it run daily (the alerts task does this).
+
+### Market news (`market.py`)
+
+Headlines come from MTGGoldfish's feed, two Google News searches and Reddit's r/mtgfinance and r/magicTCG RSS feeds, cached for an hour. Each one is tagged (reprint, ban, announcement, sealed, price) with simple keyword rules, and gets a tone from −1 to +1 from positive/negative word lists. A feed that fails (Reddit often answers *429 Too Many Requests*) is skipped and listed on the page; items already cached are kept for 30 days.
+
+---
+
 ## Daily price alerts (phone notifications)
 
 `alerts.py` checks every card in `watchlist.json` against today's Cardmarket price guide and sends **one** push notification listing the cards that hit their target. If no card hits its target, nothing is sent.
@@ -208,10 +294,12 @@ Because the cheapest printing is used by default, `above` alerts work best toget
 Example notification:
 
 ```
-Gotha: 2 card(s) hit your price
+Gotha: 2 item(s) hit your price
 ↓ Kasmina, Enigma Sage: 2.10 € (STX #196), target ≤ 3.00 €
 ↓ Ragavan, Nimble Pilferer: 25.75 € (FCA #43), target ≤ 30.00 €
 ```
+
+Sealed products in the `"sealed"` section (added with the app's **Track** button) are checked too, using the **trend** price by default (`"price"` can be `low`, `trend` or `avg`). The daily run also records the sealed prices for the history.
 
 If only one card hits its target, tapping the notification opens it on Cardmarket. If the check itself fails (e.g. no internet), you get a "price check failed" notification instead.
 
@@ -239,6 +327,8 @@ The PC has to be on for the check to run. The daily check also refreshes the pri
 
 ## Notes & limitations
 
+- The sealed outlook is a heuristic made of simple, visible rules, not a trained model. It can't know print runs, store allocations or unannounced reprints, and it improves only as recorded history grows.
+- Tournament data is scraped from MTGGoldfish's public pages and may break if their layout changes; the last saved list is used meanwhile.
 - Prices are **Cardmarket prices in EUR** only. The terminal table and the 90-day chart use the **trend** price; the lowest price and the averages only appear in the price guide panel, and only for today (the guide has no history).
 - History depends on MTGJSON, which updates once per day, so "today" means the latest day available in the dataset.
 - Some printings (e.g. digital-only or very obscure promos) have no Cardmarket data and are shown as `-`.
@@ -248,5 +338,5 @@ The PC has to be on for the check to run. The daily check also refreshes the pri
 
 ## Credits
 
-Card data and images from [Scryfall](https://scryfall.com). Price history from [MTGJSON](https://mtgjson.com). Charts by [Chart.js](https://www.chartjs.org).
+Card data and images from [Scryfall](https://scryfall.com). Price history and set data from [MTGJSON](https://mtgjson.com). Product lists and price guide from [Cardmarket](https://www.cardmarket.com). Tournament staples and news from [MTGGoldfish](https://www.mtggoldfish.com), plus Google News and Reddit. Charts by [Chart.js](https://www.chartjs.org).
 This project is not affiliated with Wizards of the Coast, Scryfall, MTGJSON or Cardmarket.
