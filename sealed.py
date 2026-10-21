@@ -5,7 +5,8 @@ Cardmarket's price guide only has *today's* numbers and MTGJSON has no
 Cardmarket history for sealed products, so Gotha records its own: every day
 the guide is downloaded, the prices of all ~5,000 sealed products are saved
 in data/sealed_history.sqlite. That file lives outside cache/ on purpose:
-deleting it loses the history, which can't be downloaded again.
+deleting it loses the history, which can't be downloaded again (only the
+days found in archived price guides can be imported back, see backfill.py).
 
 The products you track (with quantity, price paid and optional alert
 targets) are kept in watchlist.json under "sealed".
@@ -17,7 +18,7 @@ which numbers it was based on.
 """
 import json
 import sqlite3
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import market
@@ -28,6 +29,7 @@ DATA_DIR = BASE_DIR / "data"
 DB = DATA_DIR / "sealed_history.sqlite"
 WATCHLIST = BASE_DIR / "watchlist.json"
 OLD_GUIDE = BASE_DIR / "cache" / "price_guide_1.json"  # an older guide, imported once if found
+RECENT_DAYS = 90  # the outlook's "recorded trend" only looks at this many recent days
 
 # MTGJSON set types that usually carry reprints of older cards
 REPRINT_SET_TYPES = {"masters", "commander", "draft_innovation", "box", "duel_deck",
@@ -35,9 +37,9 @@ REPRINT_SET_TYPES = {"masters", "commander", "draft_innovation", "box", "duel_de
 
 
 class Tracker:
-    def __init__(self):
-        DATA_DIR.mkdir(exist_ok=True)
-        self.con = sqlite3.connect(DB, check_same_thread=False)
+    def __init__(self, db=DB):
+        Path(db).parent.mkdir(exist_ok=True)
+        self.con = sqlite3.connect(db, check_same_thread=False)
         self.con.execute(
             "CREATE TABLE IF NOT EXISTS history (id_product INTEGER, day TEXT, "
             + ", ".join(f"{f} INTEGER" for f in GUIDE_FIELDS)
@@ -58,9 +60,14 @@ class Tracker:
             self.import_guide(OLD_GUIDE, sealed_ids)
         return len(rows)
 
-    def import_guide(self, path, sealed_ids):
-        """Adds the sealed prices of a saved price_guide_1.json (an older day) to the history."""
-        guide = json.loads(Path(path).read_text(encoding="utf-8"))
+    def import_guide(self, guide, sealed_ids):
+        """Adds the sealed prices of an older price guide to the history.
+
+        `guide` is a saved price_guide_1.json (path) or its already-parsed content.
+        Returns the number of products saved (0 if that day is already recorded).
+        """
+        if not isinstance(guide, dict):
+            guide = json.loads(Path(guide).read_text(encoding="utf-8"))
         day = guide["createdAt"][:10]
         if self.con.execute("SELECT 1 FROM history WHERE day = ? LIMIT 1", (day,)).fetchone():
             return 0
@@ -84,6 +91,24 @@ class Tracker:
 
     def days_recorded(self):
         return self.con.execute("SELECT COUNT(DISTINCT day) FROM history").fetchone()[0]
+
+    def days(self):
+        """Set of the days that have recorded prices."""
+        return {r[0] for r in self.con.execute("SELECT DISTINCT day FROM history")}
+
+    def prices_on(self, ids, day):
+        """{id_product: price} on `day`, or on the latest recorded day before it.
+
+        The price is the trend, or the cheapest listing when there is no trend.
+        """
+        if not ids:
+            return {}
+        rows = self.con.execute(
+            "SELECT h.id_product, h.trend, h.low FROM history h JOIN (SELECT id_product, "
+            "MAX(day) AS day FROM history WHERE day <= ? AND (trend OR low) AND id_product IN "
+            f"({','.join('?' * len(ids))}) GROUP BY id_product) last "
+            "ON last.id_product = h.id_product AND last.day = h.day", [day, *ids])
+        return {pid: (trend or low) / 100 for pid, trend, low in rows}
 
 
 # ---------- watchlist ("sealed" section of watchlist.json) ----------
@@ -176,14 +201,17 @@ def outlook(product, guide, history, catalog, hist, news_items, staple_lists):
     else:
         add("Momentum (Cardmarket)", 0, 0, "Not enough recent sales on Cardmarket.")
 
-    # 2. Gotha's own recorded history (gets better every day it runs)
-    points = [(h["day"], h["trend"] or h["low"]) for h in history if h["trend"] or h["low"]]
+    # 2. Gotha's own recorded history (gets better every day it runs). Only the last
+    #    90 days count: a year-long history would describe the past, not where it's heading.
+    since = (date.today() - timedelta(days=RECENT_DAYS)).isoformat()
+    points = [(h["day"], h["trend"] or h["low"]) for h in history
+              if (h["trend"] or h["low"]) and h["day"] >= since]
     span = (date.fromisoformat(points[-1][0]) - date.fromisoformat(points[0][0])).days if points else 0
     if len(points) >= 3 and span >= 7:
         s = _slope_per_30_days(points)
         add("Recorded trend", s / 0.1 if s is not None else 0, 2,
-            f"{len(points)} daily prices over {span} days: {s:+.1%} per 30 days." if s is not None
-            else "Prices recorded, but flat.")
+            f"{len(points)} daily prices over the last {span} days: {s:+.1%} per 30 days."
+            if s is not None else "Prices recorded, but flat.")
     else:
         add("Recorded trend", 0, 0, f"Only {len(points)} day(s) recorded so far; "
             "this signal starts counting after a week of history.")

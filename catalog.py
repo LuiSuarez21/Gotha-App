@@ -37,7 +37,9 @@ LISTS = "https://downloads.s3.cardmarket.com/productCatalog/productList/"
 SINGLES_URL = LISTS + "products_singles_1.json"
 SEALED_URL = LISTS + "products_nonsingles_1.json"
 SETS_URL = "https://mtgjson.com/api/v5/SetList.json"
-VERSION = "4"  # bump when the table layout changes, to force a rebuild
+SCRYFALL_SETS = "https://api.scryfall.com/sets"
+SCRYFALL_HEADERS = {"User-Agent": "MTGPrices/0.1", "Accept": "application/json"}  # Scryfall asks for both
+VERSION = "5"  # bump when the table layout changes, to force a rebuild
 
 # Cardmarket category -> short label shown in the app
 CATEGORIES = {
@@ -97,14 +99,15 @@ def _build(guide_db, sealed_db):
     con = sqlite3.connect(tmp)
     con.executescript("""
         CREATE TABLE expansions (id INTEGER PRIMARY KEY, code TEXT, name TEXT,
-                                 released TEXT, type TEXT);
+                                 released TEXT, type TEXT, icon TEXT);
         CREATE TABLE singles (id_product INTEGER PRIMARY KEY, id_metacard INTEGER,
                               id_expansion INTEGER, name TEXT);
         CREATE INDEX singles_card ON singles (id_metacard);
         CREATE INDEX singles_exp ON singles (id_expansion);
         CREATE TABLE entries (id INTEGER PRIMARY KEY, kind TEXT, ref INTEGER, name TEXT,
                               norm TEXT, category TEXT, id_expansion INTEGER,
-                              printings INTEGER, price REAL, released TEXT, change REAL);
+                              printings INTEGER, price REAL, released TEXT, change REAL,
+                              tcgplayer_id INTEGER);
         CREATE TABLE upcoming (code TEXT, name TEXT, released TEXT, type TEXT);
         CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);
     """)
@@ -130,8 +133,19 @@ def _build(guide_db, sealed_db):
         s = by_name.get(norm(name)) if name else None
         exp[eid] = ((s["code"], s["name"], s["releaseDate"], s["type"]) if s else
                     (None, name or f"Expansion #{eid}", first_added.get(eid), None))
-    con.executemany("INSERT INTO expansions VALUES (?, ?, ?, ?, ?)",
-                    ((k, *v) for k, v in exp.items()))
+    icons = _set_icons()
+    con.executemany("INSERT INTO expansions VALUES (?, ?, ?, ?, ?, ?)",
+                    ((k, *v, icons.get(v[0])) for k, v in exp.items()))
+
+    # Product pictures: MTGJSON links many sealed products to their TCGplayer
+    # product id, and TCGplayer has a picture for every product id
+    tcgplayer = {}
+    for s in sets:
+        for sp in s.get("sealedProduct") or []:
+            ids = sp.get("identifiers") or {}
+            mcm, tcg = str(ids.get("mcmId", "")), str(ids.get("tcgplayerProductId", ""))
+            if mcm.isdigit() and tcg.isdigit():
+                tcgplayer[int(mcm)] = int(tcg)
 
     today = time.strftime("%Y-%m-%d")
     con.executemany("INSERT INTO upcoming VALUES (?, ?, ?, ?)",
@@ -169,15 +183,17 @@ def _build(guide_db, sealed_db):
         # The entry shows the cheapest printing's price, so it shows that printing's change too
         cheapest, pid = min(c["prices"]) if c["prices"] else (None, None)
         rows.append(("card", mid, c["name"], norm(c["name"]), None, latest["idExpansion"],
-                     len(c["prints"]), cheapest, exp[latest["idExpansion"]][2], change.get(pid)))
+                     len(c["prints"]), cheapest, exp[latest["idExpansion"]][2], change.get(pid),
+                     None))
     # ...and one per sealed product
     for p in sealed:
         rows.append(("sealed", p["idProduct"], p["name"], norm(p["name"]),
                      CATEGORIES.get(p["categoryName"], p["categoryName"]), p["idExpansion"],
                      1, price.get(p["idProduct"]), exp[p["idExpansion"]][2],
-                     change.get(p["idProduct"])))
-    con.executemany("INSERT INTO entries (kind, ref, name, norm, category, id_expansion, "
-                    "printings, price, released, change) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", rows)
+                     change.get(p["idProduct"]), tcgplayer.get(p["idProduct"])))
+    con.executemany("INSERT INTO entries (kind, ref, name, norm, category, id_expansion, printings, "
+                    "price, released, change, tcgplayer_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    rows)
 
     # Full-text index on the names (falls back to plain LIKE if FTS5/trigram is missing)
     try:
@@ -194,6 +210,21 @@ def _build(guide_db, sealed_db):
     tmp.replace(DB)
     for path in files.values():
         path.unlink(missing_ok=True)
+
+
+def _set_icons():
+    """Set code -> URL of the set's symbol (from Scryfall); {} if Scryfall can't be reached.
+
+    Promo and Secret Lair sets get their parent's symbol (PBLB -> blb.svg, SLD -> star.svg).
+    """
+    try:
+        r = requests.get(SCRYFALL_SETS, headers=SCRYFALL_HEADERS, timeout=30)
+        r.raise_for_status()
+        return {s["code"].upper(): s["icon_svg_uri"].split("?")[0]
+                for s in r.json()["data"] if s.get("icon_svg_uri")}
+    except (requests.RequestException, ValueError, KeyError) as e:
+        print(f"  (no set symbols this time: {e})")
+        return {}
 
 
 def _recorded_change(path, price, ids, days=7):
@@ -246,6 +277,11 @@ class Catalog:
             except (requests.RequestException, OSError, ValueError, KeyError) as e:
                 if not DB.exists():
                     raise
+                if _version() != VERSION:  # the cached index has an older layout: unusable
+                    raise RuntimeError(
+                        f"The search index must be rebuilt for this version of Gotha, but that "
+                        f"failed ({e}). If another Gotha window (server.py) is open, close it "
+                        "and try again.") from e
                 print(f"Warning: search index update failed ({e}); using the cached one.")
         # The app server answers each request in its own thread
         self.con = sqlite3.connect(DB, check_same_thread=False)
@@ -439,7 +475,7 @@ class Catalog:
             return {}
         rows = self.con.execute(f"SELECT * FROM expansions WHERE id IN ({','.join('?' * len(ids))})", ids)
         return {r["id"]: {"code": r["code"], "name": r["name"], "released": r["released"],
-                          "type": r["type"]} for r in rows}
+                          "type": r["type"], "icon": r["icon"]} for r in rows}
 
     def sets(self):
         """Set codes for the filter, newest first."""
@@ -460,6 +496,16 @@ class Catalog:
 
     def sealed_ids(self):
         return [r[0] for r in self.con.execute("SELECT ref FROM entries WHERE kind = 'sealed'")]
+
+    def set_sealed(self, id_expansion):
+        """Sealed products of the same set (same set code, or same expansion), dearest first."""
+        rows = self.con.execute(
+            "SELECT e.ref, e.name, e.category, e.price, e.change, e.tcgplayer_id FROM entries e "
+            "JOIN expansions x ON x.id = e.id_expansion WHERE e.kind = 'sealed' AND "
+            "(e.id_expansion = ? OR (x.code IS NOT NULL AND x.code = "
+            "(SELECT code FROM expansions WHERE id = ?))) ORDER BY e.price IS NULL, e.price DESC",
+            (id_expansion, id_expansion))
+        return [dict(r) for r in rows]
 
     def set_singles(self, id_expansion):
         """Single cards printed in the same set (main and "Extras" expansions)."""

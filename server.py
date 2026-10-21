@@ -20,6 +20,7 @@ import sys
 import threading
 import traceback
 import webbrowser
+from datetime import date, timedelta
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -35,6 +36,7 @@ from history import History
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
 DEFAULT_PORT = 8765
+SIBLING_DAYS = (7, 30)  # "days ago" columns of the other products of a set
 
 hist = catalog = tracker = None
 card_lock = threading.Lock()  # one Scryfall lookup at a time (their rate limit)
@@ -84,8 +86,14 @@ def api_sealed(q):
     news = market.news()["items"]
     out = sealed.outlook(product, guide, history, catalog, hist, news, market.staples())
     mine = next((t for t in sealed.tracked() if t["id"] == pid), None)
+    # The other sealed products of the set, with their recorded price N days ago
+    siblings = catalog.set_sealed(product["id_expansion"])
+    ago = {d: tracker.prices_on([s["ref"] for s in siblings],
+                                (date.today() - timedelta(days=d)).isoformat()) for d in SIBLING_DAYS}
+    for s in siblings:
+        s["ago"] = {d: ago[d].get(s["ref"]) for d in SIBLING_DAYS}
     return {"product": product, "guide": guide.get("normal", {}), "history": history,
-            "outlook": out, "tracked": mine}
+            "outlook": out, "tracked": mine, "siblings": siblings, "guide_date": hist.guide_date}
 
 
 def api_tracked(_):

@@ -28,7 +28,7 @@ Modern Horizons 2 Timeshifts   H2R   11    │     45.40 €    45.78 €    42.
 - **Daily phone alerts**: get a push notification when a card on your watchlist drops below (or rises above) a target price.
 - **Small local cache**: the large price dataset is downloaded at most once a day and stored in a compressed SQLite database (~22 MB), so later lookups are instant.
 - **Gotha app** (`python server.py`): a browser app with **live search as you type** over every Magic product on Cardmarket (~128,000 cards and sealed products), with ranking, typo tolerance, filters, matching sets, endless scrolling, recent searches and this week's biggest price movers.
-- **Sealed product tracker**: booster boxes, bundles, decks, Secret Lairs… with quantity, price paid, profit/loss and phone alerts. Gotha records their prices every day, because nobody publishes sealed price history for free.
+- **Sealed product tracker**: booster boxes, bundles, decks, Secret Lairs… with quantity, price paid, profit/loss and phone alerts. Gotha records their prices every day, because nobody publishes sealed price history for free, and `backfill.py` imports past days from archived copies of Cardmarket's price guide. Each sealed product has a page like the card page: product picture, today / 7 / 30 / 90 days ago, a history chart and the other products of the set.
 - **Price outlook for sealed products**: a transparent score built from price momentum, product age, reprint risk, tournament play and news/social tone, with the evidence behind every signal.
 - **Market news**: latest headlines and posts from MTGGoldfish, Google News and Reddit, tagged (reprints, bans, announcements, sealed, prices).
 
@@ -73,6 +73,7 @@ Gotha (MTG Fetch Prices App)/
 ├── history.py       # Downloads MTGJSON price history and caches it in SQLite
 ├── catalog.py       # Local search index of every Cardmarket product + ranking
 ├── sealed.py        # Sealed price history, tracker and price outlook
+├── backfill.py      # One-time import of past sealed prices from archived price guides
 ├── market.py        # News feeds, sentiment and tournament staples
 ├── chart.py         # Writes the chart data for the web page and opens it in the browser
 ├── alerts.py        # Daily price check: sends phone notifications for the watchlist
@@ -219,6 +220,34 @@ The page `web/index.html` is a **fixed template**: Python never rewrites it. Onl
 ### Sealed tracker and price history (`sealed.py`)
 
 Cardmarket's price guide only has *today's* numbers for sealed products (cheapest listing, trend and average sale price; no 1/7/30-day averages), and MTGJSON has no Cardmarket history for them. So every time `server.py` or `alerts.py` runs, Gotha saves the prices of all ~5,000 sealed products in `data/sealed_history.sqlite`, once per guide date. If an old `cache/price_guide_1.json` is around, its day is imported once too.
+
+#### Filling in past days (`backfill.py`)
+
+Some people saved Cardmarket's daily price guide over time, so the history can start long before Gotha did:
+
+```bash
+python backfill.py --list              # what would be downloaded
+python backfill.py                     # import every day that is missing (~680 MB, one file at a time)
+python backfill.py --since 2026-04-01  # only days from this date on
+```
+
+| Source | Days | Notes |
+|---|---|---|
+| [cusco/cardmarket_prices](https://github.com/cusco/cardmarket_prices) archive (`ovh.tretas.eu/~cusco/catalogs/`) | ~270: Jan–Apr 2025 and Apr–Oct 2026 | Daily MTG price guides, ~2.5 MB each. A personal server shared by the author, so the script downloads politely (one file at a time, 1 s apart) and only once. |
+| Internet Archive (Wayback Machine) | 1 (2025-07-15) | Picked up automatically if more copies appear. |
+
+Only sealed products are imported, each day once (days already recorded are skipped, and it can be stopped with Ctrl+C and run again). The archive saves the guide twice a day, so the same content appears under two dates; the script keeps one copy per content. Stop `server.py` first if you want the search's weekly changes to use the new days right away; otherwise they're used from the next daily index update.
+
+Other sources that were checked, for the record:
+
+- **MTGJSON** has no sealed prices (`AllPrices` only covers cards), but its set data links sealed products to their Cardmarket and TCGplayer ids, which Gotha uses for the product pictures.
+- **TCGplayer** shows a price history chart (in USD) on each product page; the sealed page links to it. Its history API isn't public.
+- **Paid APIs** (TCG API, JustTCG, PriceCharting) have sealed history, mostly in USD, with short free tiers.
+- **Cardmarket** has no history download; its product pages show a chart, but scraping them is against its terms.
+
+#### Sealed product page
+
+Opening a sealed product shows the same layout as a card: the product picture (from TCGplayer, through MTGJSON's id links; products without one show their set's symbol from Scryfall), the price **today and 7, 30 and 90 days ago** (a past day uses the latest record up to 10 days before it), Cardmarket's price guide, a **price history chart** (trend, cheapest listing and average sale; 1M / 3M / 6M / 1Y / All), and a table of the **other sealed products of the set** with their price 7 and 30 days ago. The outlook, the Track form and the news follow below. The outlook's "Recorded trend" only uses the last 90 days.
 
 Press **Track** on a sealed product to add it to `watchlist.json`:
 

@@ -118,11 +118,33 @@
     .signals td:first-child { white-space: normal; }
   }
 
-  /* Sealed detail */
-  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-top: 12px; }
-  .kpi { background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+  /* Sealed detail: the same layout as the card page (index.html) */
+  .product { display: flex; gap: 28px; align-items: flex-start; flex-wrap: wrap; margin-top: 24px; }
+  .product .pic { flex: none; width: 220px; max-width: 100%; aspect-ratio: 1; display: grid; place-items: center;
+                  overflow: hidden; border-radius: 12px; background: #fff; box-shadow: 0 8px 30px rgba(0,0,0,.25); }
+  .product .pic img { width: 100%; height: 100%; object-fit: contain; padding: 10px; }
+  .product .pic.ph { background: var(--card); border: 1px solid var(--line); box-shadow: none;
+                     align-content: center; gap: 10px; color: var(--muted); font-size: 13px; text-align: center; }
+  .product .pic.ph img { width: 96px; height: 96px; padding: 0; opacity: .7; }
+  .product .info { flex: 1; min-width: 260px; }
+  .product h1 { font-size: 30px; margin: 4px 0 2px; }
+  .product .sub { color: var(--muted); margin: 0 0 14px; }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+  .kpi { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
   .kpi .l { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
-  .kpi .v { font-size: 21px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .kpi .v { font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .kpi .f { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .panel-head { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+  .chart.big { height: 360px; }
+  img.thumb { width: 34px; height: 34px; object-fit: contain; border-radius: 6px; background: #fff; vertical-align: middle; }
+  img.thumb.icon { background: none; padding: 5px; opacity: .7; }
+  table.data td.name { white-space: normal; min-width: 220px; }
+  table.data tbody tr.sel { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+  table.data.static tbody tr { cursor: default; }
+  table.data.static tbody tr:hover { background: none; }
+  @media (prefers-color-scheme: dark) {
+    .product .pic.ph img, img.thumb.icon { filter: invert(1); }  /* set symbols are black */
+  }
   h1 { font-size: 26px; margin: 0; letter-spacing: -.02em; }
   .outlook-head { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; }
   .pill { font-weight: 700; font-size: 18px; padding: 4px 14px; border-radius: 99px;
@@ -550,8 +572,6 @@ function restore() {
 }
 
 // ---------- detail ----------
-let sealedChart = null;
-
 function open(r) {
   if (!r) return;
   addRecent($("#q").value);  // remember searches that led to a product
@@ -587,28 +607,159 @@ async function openCard(name) {
   }
 }
 
+// ---------- sealed product (same layout as the card page) ----------
+let sealedChart = null;
+const KPI_DAYS = [7, 30, 90];  // the "N days ago" tiles
+const SIB_DAYS = [7, 30];      // the "N days ago" columns of the set's other products
+const GAP = 10;                // the chart joins points up to this many days apart
+const RANGES = [[30, "1M"], [90, "3M"], [182, "6M"], [365, "1Y"], [0, "All"]];
+
+// TCGplayer has a picture of every product, by its TCGplayer id (linked by MTGJSON)
+const tcgImage = (id, size) => `https://tcgplayer-cdn.tcgplayer.com/product/${Number(id)}_${size}.jpg`;
+const isoDay = t => `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
+const daysAgo = d => { const t = new Date(); t.setDate(t.getDate() - d); return isoDay(t); };
+const daysBetween = (a, b) => Math.round((new Date(b + "T00:00") - new Date(a + "T00:00")) / 864e5);
+// Green if the price is higher now than then, red if lower (like the card page)
+const moved = (now, then) => now == null || then == null ? "" : now > then * 1.02 ? "up" : now < then * 0.98 ? "down" : "";
+const priceOf = h => h && (h.trend || h.low) || null;
+
+// The latest recorded day on or before `day` (history is oldest first), if it is
+// at most 10 days earlier: an older price would be passed off as that day's
+function recordedOn(hist, day) {
+  let best = null;
+  for (const h of hist) if (h.day <= day && priceOf(h)) best = h;
+  return best && daysBetween(best.day, day) <= 10 ? best : null;
+}
+
+function placeholder(p, set) {
+  return `<div class="pic ph">${set.icon ? `<img alt="" src="${esc(safeUrl(set.icon))}">` : ""}
+    <div>${esc(p.category || "Sealed product")}</div></div>`;
+}
+
+function kpiTiles(g, hist) {
+  const now = g.trend || g.low;
+  return `<div class="kpi"><div class="l">Today</div><div class="v">${eur(now)}</div>
+      <div class="f">From: ${eur(g.low)}</div></div>` + KPI_DAYS.map(d => {
+    const h = recordedOn(hist, daysAgo(d)), then = priceOf(h);
+    const note = h && h.day !== daysAgo(d) ? ` · ${h.day.slice(8)}/${h.day.slice(5, 7)}` : "";
+    return `<div class="kpi" title="${h ? "Recorded on " + h.day : "Nothing recorded around " + daysAgo(d)}">
+      <div class="l">${d} days ago</div><div class="v ${moved(now, then)}">${eur(then)}</div>
+      <div class="f">${h ? `From: ${eur(h.low)}${note}` : "not recorded"}</div></div>`;
+  }).join("");
+}
+
+function siblingsTable(list, current, icon) {
+  if (list.length < 2) return '<div class="empty">No other sealed products in this set.</div>';
+  const thumb = s => s.tcgplayer_id ? `<img class="thumb" loading="lazy" alt="" src="${tcgImage(s.tcgplayer_id, "200w")}">`
+    : icon ? `<img class="thumb icon" loading="lazy" alt="" src="${esc(safeUrl(icon))}">` : "";
+  return `<div class="tbl"><table class="data" id="sibs">
+    <thead><tr><th></th><th>Product</th><th>Type</th><th class="n">Today</th>
+      ${SIB_DAYS.map(d => `<th class="n">${d}D ago</th>`).join("")}</tr></thead>
+    <tbody>${list.map(s => `<tr data-ref="${Number(s.ref)}"${s.ref === current ? ' class="sel"' : ""}>
+      <td>${thumb(s)}</td><td class="name">${esc(s.name)}</td><td>${esc(s.category || "")}</td>
+      <td class="n">${eur(s.price)}</td>
+      ${SIB_DAYS.map(d => `<td class="n ${moved(s.price, s.ago[d])}">${eur(s.ago[d])}</td>`).join("")}</tr>`).join("")}
+    </tbody></table></div>`;
+}
+
+function drawSealedChart(hist, range) {
+  const box = $("#sbox");
+  sealedChart?.destroy(); sealedChart = null;
+  document.querySelectorAll("#srange button").forEach(b => b.setAttribute("aria-pressed", +b.dataset.r === range));
+  const all = hist.filter(h => h.trend || h.low || h.avg);
+  const pts = range ? all.filter(h => h.day >= daysAgo(range)) : all;
+  if (!pts.length) {
+    box.innerHTML = `<div class="empty">${all.length ? "Nothing recorded in this period." : "No prices recorded yet."}</div>`;
+    return;
+  }
+  // x = days since the first recorded day of the period: the axis is to scale, and only
+  // recorded days are points, so Chart.js joins gaps of up to GAP days and breaks longer ones
+  const start = pts[0].day;
+  const x = day => daysBetween(start, day);
+  const dayAt = v => { const t = new Date(start + "T00:00"); t.setDate(t.getDate() + Math.round(v)); return isoDay(t); };
+  const marks = new Set([pts.at(-1).day, ...KPI_DAYS.map(daysAgo)]);
+  // Dots: on the "days ago" days, on lonely points (no line through them) and on short series
+  const lonely = pts.map((h, i) => (i === 0 || x(h.day) - x(pts[i - 1].day) > GAP) &&
+                                   (i === pts.length - 1 || x(pts[i + 1].day) - x(h.day) > GAP));
+  const radius = pts.map((h, i) => marks.has(h.day) ? 5 : pts.length < 40 || lonely[i] ? 3 : 0);
+  const line = (label, key, color, extra = {}) => ({
+    label, data: pts.map(h => ({x: x(h.day), y: h[key] ?? null})), borderColor: color,
+    backgroundColor: color + "1f", cubicInterpolationMode: "monotone", borderWidth: 2.2, spanGaps: GAP,
+    pointRadius: radius, pointBackgroundColor: color, pointHoverRadius: 5, ...extra});
+  const long = x(pts.at(-1).day) > 400;
+  box.innerHTML = "<canvas></canvas>";
+  sealedChart = new Chart(box.querySelector("canvas"), {
+    type: "line",
+    data: {datasets: [
+      line("Trend", "trend", css("--normal"), {fill: true}),
+      line("Cheapest listing", "low", css("--foil")),
+      line("Average sale", "avg", css("--muted"), {borderDash: [5, 4], hidden: true})]},
+    options: {
+      maintainAspectRatio: false, parsing: false, interaction: {mode: "index", intersect: false},
+      scales: {
+        y: {grid: {color: css("--line")}, ticks: {callback: v => eur(v)}},
+        x: {type: "linear", min: 0, max: Math.max(1, x(pts.at(-1).day)), grid: {display: false},
+            ticks: {maxTicksLimit: 10, includeBounds: false, callback(v) {
+              const d = dayAt(v);
+              return long ? d.slice(5, 7) + "/" + d.slice(2, 4) : d.slice(8) + "/" + d.slice(5, 7);
+            }}}},
+      plugins: {legend: {labels: {usePointStyle: true}},
+                tooltip: {callbacks: {title: items => dayAt(items[0].parsed.x),
+                                      label: c => `${c.dataset.label}: ${eur(c.parsed.y)}`}}}},
+  });
+}
+
 async function openSealed(id) {
   const box = $("#detail");
   box.innerHTML = `<div class="panel muted">Loading…</div>`;
   let d;
   try { d = await api("/api/sealed?id=" + id); }
   catch (e) { box.innerHTML = `<div class="panel error">${esc(e.message)}</div>`; return; }
-  const p = d.product, g = d.guide, o = d.outlook, t = d.tracked;
+  const p = d.product, g = d.guide, o = d.outlook, t = d.tracked, hist = d.history;
   const set = p.set || {};
   const oc = o.label === "Likely up" ? "up" : o.label === "Likely down" ? "down" : "flat";
-  const link = "https://www.cardmarket.com/en/Magic/Products/Search?searchString=" + encodeURIComponent(p.name);
+  const recorded = hist.filter(priceOf);
+  const span = recorded.length ? daysBetween(recorded[0].day, recorded.at(-1).day) : 0;
+  const ranges = RANGES.filter(([r]) => !r || r < span);
   box.innerHTML = `
-    <section class="panel">
-      <h1>${esc(p.name)}</h1>
-      <div class="muted">${esc(p.category)} · ${esc(set.code ? set.code + " · " : "")}${esc(set.name || "")}
-        · released ${esc(set.released || p.released || "?")} · <a href="${link}" target="_blank" rel="noopener">Cardmarket ↗</a></div>
-      <div class="kpis">
-        <div class="kpi"><div class="l">Trend</div><div class="v">${eur(g.trend)}</div></div>
-        <div class="kpi"><div class="l">From (cheapest)</div><div class="v">${eur(g.low)}</div></div>
-        <div class="kpi"><div class="l">Average sale</div><div class="v">${eur(g.avg)}</div></div>
-        <div class="kpi"><div class="l">90-day estimate</div><div class="v ${oc}">${o.projection ? eur(o.projection.mid) : "–"}</div>
-          <div class="muted" style="font-size:12px">${o.projection ? `${eur(o.projection.low)} – ${eur(o.projection.high)}` : ""}</div></div>
+    <header class="product">
+      ${p.tcgplayer_id ? `<div class="pic"><img alt="${esc(p.name)}" src="${tcgImage(p.tcgplayer_id, "in_1000x1000")}"></div>`
+                       : placeholder(p, set)}
+      <div class="info">
+        <h1>${esc(p.name)}</h1>
+        <p class="sub">${esc(p.category)} · ${esc(set.code ? set.code + " · " : "")}${esc(set.name || "")}
+          · released ${esc(set.released || p.released || "?")}<br>${recorded.length
+            ? `${recorded.length} day(s) of price history since ${esc(recorded[0].day)}` : "No price history recorded yet"}</p>
+        <div class="kpis">${kpiTiles(g, hist)}</div>
+        <p class="sub" style="margin-top:12px">
+          <a href="https://www.cardmarket.com/en/Magic/Products?idProduct=${Number(p.ref)}" target="_blank" rel="noopener">View on Cardmarket ↗</a>
+          ${p.tcgplayer_id ? ` · <a href="https://www.tcgplayer.com/product/${Number(p.tcgplayer_id)}" target="_blank" rel="noopener"
+            title="TCGplayer shows a price history chart in US dollars">TCGplayer (USD history) ↗</a>` : ""}</p>
       </div>
+    </header>
+
+    <section class="panel">
+      <h2>Cardmarket price guide</h2>
+      <p class="hint">From Cardmarket's daily price guide (${esc(d.guide_date || "?")}). "From" is the cheapest listing
+        right now; the trend and the average are based on what it sold for. Sealed products have no 1/7/30-day averages.</p>
+      <div class="tbl"><table class="data static"><thead><tr><th class="n">From (cheapest)</th><th class="n">Trend</th>
+        <th class="n">Average sale</th></tr></thead>
+        <tbody><tr><td class="n">${eur(g.low)}</td><td class="n">${eur(g.trend)}</td><td class="n">${eur(g.avg)}</td></tr></tbody>
+      </table></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head"><h2>Price history</h2>
+        ${ranges.length > 1 ? `<div class="seg" id="srange">${ranges.map(([r, l]) => `<button data-r="${r}">${l}</button>`).join("")}</div>` : ""}</div>
+      <p class="hint">Cardmarket's prices on the days Gotha recorded them (every day it runs, plus past days imported
+        with <code>python backfill.py</code>). Gaps are days with no record. Click the legend to show or hide a line.</p>
+      <div class="chart big" id="sbox"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Other sealed products in this set</h2>
+      <p class="hint">Click a row to open that product. Green = more expensive today than on that day, red = cheaper.</p>
+      ${siblingsTable(d.siblings, p.ref, set.icon)}
     </section>
 
     <section class="panel">
@@ -616,7 +767,8 @@ async function openSealed(id) {
         <h2 style="margin:0">Price outlook</h2>
         <span class="pill ${oc}">${esc(o.label)}</span>
         <div class="gauge" title="Score ${o.score}"><i style="left:${(o.score + 1) * 50}%"></i></div>
-        <span class="muted">score ${o.score > 0 ? "+" : ""}${o.score.toFixed(2)} · ${esc(o.confidence)} confidence</span>
+        <span class="muted">score ${o.score > 0 ? "+" : ""}${o.score.toFixed(2)} · ${esc(o.confidence)} confidence${
+          o.projection ? ` · 90-day estimate <b class="${oc}">${eur(o.projection.mid)}</b> (${eur(o.projection.low)} – ${eur(o.projection.high)})` : ""}</span>
       </div>
       <p class="hint" style="margin-top:8px">A transparent heuristic, not financial advice: each signal is scored
         from −1 to +1 and weighted; signals with weight 0 had no data yet. It gets more reliable as Gotha records more days.</p>
@@ -629,11 +781,6 @@ async function openSealed(id) {
     </section>
 
     <div class="two">
-      <section class="panel">
-        <h2>Recorded price history</h2>
-        <p class="hint">Saved by Gotha every day it runs (Cardmarket keeps no sealed history).</p>
-        <div class="chart" id="sbox"></div>
-      </section>
       <section class="panel">
         <h2>Track this product</h2>
         <p class="hint">${t ? "You are tracking this product." : "Add it to your sealed tracker."} Alerts go to your phone like card alerts.</p>
@@ -648,31 +795,25 @@ async function openSealed(id) {
         <h2 style="margin-top:20px">Most valuable cards in the set</h2>
         <div class="muted" style="font-size:13px">${o.chase.length ? o.chase.map(c => `${esc(c.name)} <b>${eur(c.price)}</b>`).join(" · ") : "No singles found for this set."}</div>
       </section>
-    </div>
+      <section class="panel">
+        <h2>News & posts about this set</h2>
+        ${newsList(o.news, "No recent headline or post mentions this set.")}
+      </section>
+    </div>`;
 
-    <section class="panel">
-      <h2>News & posts about this set</h2>
-      ${newsList(o.news, "No recent headline or post mentions this set.")}
-    </section>`;
+  // A picture that fails to load becomes the set-symbol placeholder; a broken thumbnail disappears
+  const pic = box.querySelector(".product .pic:not(.ph) img");
+  if (pic) pic.onerror = () => { pic.parentElement.outerHTML = placeholder(p, set); };
+  box.querySelectorAll("img.thumb, .pic.ph img").forEach(i => i.onerror = () => { i.style.visibility = "hidden"; });
 
-  // Chart of the recorded days
-  sealedChart?.destroy(); sealedChart = null;
-  const pts = d.history.filter(h => h.trend || h.low);
-  const sbox = $("#sbox");
-  if (pts.length < 2) {
-    sbox.innerHTML = `<div class="empty">${pts.length} day recorded so far. Run Gotha on more days to build the chart.</div>`;
-  } else {
-    sbox.innerHTML = '<canvas></canvas>';
-    const line = (label, key, color) => ({label, data: pts.map(h => h[key]), borderColor: color,
-      backgroundColor: color + "22", tension: .25, spanGaps: true, pointRadius: pts.length > 30 ? 0 : 3});
-    sealedChart = new Chart(sbox.querySelector("canvas"), {
-      type: "line",
-      data: {labels: pts.map(h => h.day), datasets: [line("Trend", "trend", css("--normal")), line("Cheapest", "low", css("--foil"))]},
-      options: {maintainAspectRatio: false, interaction: {mode: "index", intersect: false},
-        scales: {y: {ticks: {callback: v => eur(v)}, grid: {color: css("--line")}}, x: {grid: {display: false}}},
-        plugins: {tooltip: {callbacks: {label: c => `${c.dataset.label}: ${eur(c.parsed.y)}`}}}},
-    });
-  }
+  drawSealedChart(hist, span > 365 ? 365 : 0);  // long histories open on the last year
+  $("#srange")?.addEventListener("click", e => {
+    const b = e.target.closest("button"); if (b) drawSealedChart(hist, +b.dataset.r);
+  });
+  $("#sibs")?.addEventListener("click", e => {
+    const tr = e.target.closest("tr[data-ref]");
+    if (tr && +tr.dataset.ref !== p.ref) open({kind: "sealed", ref: +tr.dataset.ref});
+  });
 
   $("#track").onsubmit = async e => {
     e.preventDefault();
