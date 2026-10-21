@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MTG Prices</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #f6f5f2; --card: #ffffff; --ink: #1d1d1f; --muted: #6e6e73;
+    --line: #e4e2dc; --up: #1a8f4c; --down: #c8372d;
+    --normal: #2f6fdb; --foil: #b7791f; --accent: #6b4fd8;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141416; --card: #1d1d20; --ink: #ececef; --muted: #9a9aa2;
+      --line: #2c2c31; --up: #3fbf74; --down: #ef6a5f;
+      --normal: #6aa0ff; --foil: #e3b04b; --accent: #9d87ff;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 32px 20px 60px; }
+  header { display: flex; gap: 28px; align-items: flex-start; flex-wrap: wrap; }
+  header img { width: 220px; max-width: 100%; border-radius: 12px; box-shadow: 0 8px 30px rgba(0,0,0,.25); }
+  header .info { flex: 1; min-width: 260px; }
+  h1 { font-size: 30px; margin: 4px 0 2px; letter-spacing: -.02em; }
+  .sub { color: var(--muted); margin: 0 0 14px; }
+  select { font: inherit; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--line);
+           background: var(--card); color: var(--ink); max-width: 100%; margin-bottom: 14px; }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+  .kpi { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+  .kpi .l { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+  .kpi .v { font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .kpi .f { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .panel { background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+           padding: 20px; margin-top: 24px; }
+  .panel h2 { font-size: 17px; margin: 0 0 4px; }
+  .panel .hint { color: var(--muted); font-size: 13px; margin: 0 0 14px; }
+  .chart { position: relative; height: 360px; }
+  .tbl { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { padding: 9px 10px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; font-weight: 600; }
+  th.grp { text-align: center; border-bottom: 2px solid var(--line); }
+  td.n, th.n { text-align: right; }
+  td.sep, th.sep { border-left: 1px solid var(--line); }
+  #tb tr { cursor: pointer; }
+  #tb tr:hover, #tb tr.sel { background: color-mix(in srgb, var(--accent) 9%, transparent); }
+  .up { color: var(--up); } .down { color: var(--down); }
+  a { color: var(--accent); }
+  #waiting { color: var(--muted); text-align: center; padding: 120px 20px; }
+  .empty { color: var(--muted); font-style: italic; padding: 30px 0; text-align: center; }
+</style>
+</head>
+<body>
+<p id="waiting">Waiting for a card… search for one in the terminal (python main.py).</p>
+<div class="wrap" hidden>
+  <header>
+    <img id="img" alt="">
+    <div class="info">
+      <h1 id="name"></h1>
+      <p class="sub" id="sub"></p>
+      <select id="sel"></select>
+      <div class="kpis" id="kpis"></div>
+      <p class="sub" style="margin-top:12px"><a id="link" target="_blank" rel="noopener">View on Cardmarket ↗</a></p>
+    </div>
+  </header>
+
+  <section class="panel">
+    <h2>Cardmarket price guide</h2>
+    <p class="hint" id="guide-hint"></p>
+    <div class="tbl"><table id="guide"></table></div>
+  </section>
+
+  <section class="panel">
+    <h2>Price over the last 90 days</h2>
+    <p class="hint">Daily Cardmarket price. The marked points are today and the days used in the "ago" columns. Click the legend to show/hide normal or foil.</p>
+    <div class="chart" id="box"><canvas id="c1"></canvas></div>
+  </section>
+
+  <section class="panel">
+    <h2>All printings</h2>
+    <p class="hint">Click a row to chart that printing. Green = more expensive today than on that day, red = cheaper.</p>
+    <div class="tbl"><table>
+      <thead id="th"></thead>
+      <tbody id="tb"></tbody>
+    </table></div>
+  </section>
+</div>
+
+<script>
+// The data comes from data.js, which Python rewrites for every card searched.
+// The page re-reads that file every 1.5 s and updates itself.
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const eur = v => v == null ? "–" : v.toLocaleString("en-IE", {style: "currency", currency: "EUR"});
+const hasData = c => c.normal["0"] != null || c.foil["0"] != null;
+
+// Colour of an old price, compared with today's
+const trend = (today, before) => today == null || before == null ? "" :
+  today > before * 1.02 ? "up" : today < before * 0.98 ? "down" : "";
+
+function daysBefore(ref, d) {
+  const t = new Date(ref + "T00:00:00Z"); t.setUTCDate(t.getUTCDate() - d);
+  return t.toISOString().slice(0, 10);
+}
+
+Chart.defaults.font.family = "system-ui, -apple-system, 'Segoe UI', sans-serif";
+Chart.defaults.color = css("--muted");
+
+const sel = document.getElementById("sel");
+let D = null, printings = [], chart = null, version = null;
+
+// Called by data.js
+function load(data) {
+  if (data.generated === version) return;  // nothing new
+  version = data.generated; D = data; printings = D.printings;
+
+  document.getElementById("waiting").hidden = true;
+  document.querySelector(".wrap").hidden = false;
+  document.title = `${D.name} · Prices`;
+  document.getElementById("name").textContent = D.name;
+  document.getElementById("sub").textContent =
+    `${printings.length} printings · Cardmarket prices up to ${D.ref || "?"}`;
+
+  sel.innerHTML = "";
+  printings.forEach((c, i) => { if (hasData(c)) sel.add(new Option(`${c.set_name} (${c.set} #${c.num})`, i)); });
+  // Default: the cheapest normal printing
+  const cheapest = printings.map((c, i) => [c.normal["0"], i]).filter(([v]) => v != null).sort((a, b) => a[0] - b[0])[0];
+  if (cheapest) sel.value = cheapest[1];
+
+  table();
+  if (sel.value !== "") show(+sel.value);
+  window.scrollTo({ top: 0 });
+}
+
+function show(i) {
+  const c = printings[i];
+  document.getElementById("img").src = c.img || "";
+  const link = document.getElementById("link");
+  link.hidden = !c.link; link.href = c.link || "#";
+
+  // Cards: today / X days ago
+  document.getElementById("kpis").innerHTML = [0, ...D.days].map(d => {
+    const n = c.normal[d], f = c.foil[d];
+    const k = d ? trend(c.normal["0"], n) : "";
+    return `<div class="kpi"><div class="l">${d ? d + " days ago" : "Today"}</div>
+      <div class="v ${k}">${eur(n)}</div><div class="f">Foil: ${eur(f)}</div></div>`;
+  }).join("");
+
+  // Price guide
+  guide(c);
+
+  // Chart
+  const dates = [...new Set([...Object.keys(c.hist.normal || {}), ...Object.keys(c.hist.foil || {})])].sort();
+  const box = document.getElementById("box");
+  if (chart) { chart.destroy(); chart = null; }
+  if (!dates.length) {
+    box.innerHTML = '<div class="empty">No price history for this printing.</div>';
+  } else {
+    box.innerHTML = '<canvas id="c1"></canvas>';
+    const marks = new Set([D.ref, ...D.days.map(d => daysBefore(D.ref, d))]);
+    const series = (label, h, color) => ({
+      label, borderColor: color, backgroundColor: color + "1f", fill: true, tension: .25,
+      borderWidth: 2.2, spanGaps: true,
+      data: dates.map(d => h[d] ?? null),
+      pointRadius: dates.map(d => marks.has(d) ? 6 : 0),
+      pointBackgroundColor: color, pointHoverRadius: 6,
+    });
+    const ds = [];
+    if (c.hist.normal) ds.push(series("Normal", c.hist.normal, css("--normal")));
+    if (c.hist.foil) ds.push(series("Foil", c.hist.foil, css("--foil")));
+    chart = new Chart(document.getElementById("c1"), {
+      type: "line", data: { labels: dates, datasets: ds },
+      options: {
+        maintainAspectRatio: false, interaction: { mode: "index", intersect: false },
+        scales: {
+          y: { grid: { color: css("--line") }, ticks: { callback: v => eur(v) } },
+          x: { grid: { display: false }, ticks: { maxTicksLimit: 10,
+               callback(v) { const d = this.getLabelForValue(v); return d.slice(8) + "/" + d.slice(5, 7); } } },
+        },
+        plugins: {
+          legend: { labels: { usePointStyle: true } },
+          tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${eur(ctx.parsed.y)}` } },
+        },
+      },
+    });
+  }
+  document.querySelectorAll("#tb tr").forEach(tr => tr.classList.toggle("sel", +tr.dataset.i === i));
+}
+
+// Cardmarket's daily price guide for the selected printing
+function guide(c) {
+  const g = c.guide || {};
+  const hint = document.getElementById("guide-hint");
+  const el = document.getElementById("guide");
+  if (!g.normal && !g.foil) {
+    hint.textContent = "";
+    el.innerHTML = '<tr><td class="empty">No price guide for this printing.</td></tr>';
+    return;
+  }
+  hint.textContent = `From Cardmarket's daily price guide (${D.guide_date || "?"}). ` +
+    `"From" is the cheapest listing right now; the averages are what the card actually sold for.`;
+  const cols = [["low", "From"], ["trend", "Trend"], ["avg1", "1-day avg"], ["avg7", "7-day avg"], ["avg30", "30-day avg"]];
+  el.innerHTML = `
+    <thead><tr><th></th>${cols.map(([, l]) => `<th class="n">${l}</th>`).join("")}</tr></thead>
+    <tbody>${[["normal", "Normal"], ["foil", "Foil"]].map(([k, l]) => `
+      <tr><td>${l}</td>${cols.map(([f]) => `<td class="n">${eur((g[k] || {})[f])}</td>`).join("")}</tr>`).join("")}
+    </tbody>`;
+}
+
+// Table with every printing
+function table() {
+  const cols = [0, ...D.days];
+  const colName = d => d ? `${d}D ago` : "Today";
+  document.getElementById("th").innerHTML = `
+    <tr><th colspan="3"></th><th class="grp sep" colspan="${cols.length}">Normal</th>
+        <th class="grp sep" colspan="${cols.length}">Foil</th></tr>
+    <tr><th>Edition</th><th>Set</th><th>No.</th>
+      ${["normal", "foil"].map(() => cols.map((d, j) =>
+        `<th class="n${j ? "" : " sep"}">${colName(d)}</th>`).join("")).join("")}</tr>`;
+  document.getElementById("tb").innerHTML = printings.map((c, i) => `
+    <tr data-i="${i}"><td>${c.set_name}</td><td>${c.set}</td><td>${c.num}</td>
+      ${["normal", "foil"].map(t => cols.map((d, j) =>
+        `<td class="n${j ? "" : " sep"} ${d ? trend(c[t]["0"], c[t][d]) : ""}">${eur(c[t][d])}</td>`).join("")).join("")}
+    </tr>`).join("");
+}
+
+document.getElementById("tb").addEventListener("click", e => {
+  const tr = e.target.closest("tr"); if (!tr) return;
+  const i = +tr.dataset.i;
+  if (!hasData(printings[i])) return;
+  sel.value = i; show(i); window.scrollTo({ top: 0, behavior: "smooth" });
+});
+sel.addEventListener("change", () => show(+sel.value));
+
+// Re-read data.js (the "?t=" stops the browser from using a cached copy)
+function check() {
+  const s = document.createElement("script");
+  s.src = "data.js?t=" + Date.now();
+  s.onload = s.onerror = () => s.remove();
+  document.head.appendChild(s);
+}
+check();
+setInterval(check, 1500);
+</script>
+</body>
+</html>
