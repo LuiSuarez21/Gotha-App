@@ -11,7 +11,8 @@ Quando o PR é aceite (merge), o ponto fica marcado `- [x]`.
 
 ## Lista
 
-- [ ] Portfolio tracker: cartas que tenho, preço pago, valor hoje, lucro ou prejuízo depois das fees do Cardmarket.
+- [x] Portfolio tracker: cartas que tenho, preço pago, valor hoje, lucro ou prejuízo depois das fees do Cardmarket.
+- [ ] Portfolio tracker, parte 2: alertas no telemóvel para as cartas que tenho, histórico do valor total e escolher a edição por uma lista em vez de escrever o set.
 - [ ] Opportunity scanner: scan diário do price guide do Cardmarket à procura de sinais
       (por exemplo a média de 7 dias a subir rápido em comparação com a média de 30 dias).
 - [ ] Fee calculator: o preço de venda que preciso para X% de lucro depois das fees do Cardmarket e dos portes.

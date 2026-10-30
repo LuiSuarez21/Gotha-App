@@ -200,6 +200,7 @@
     <div class="tabs" role="tablist">
       <button role="tab" data-tab="search" aria-selected="true">Search</button>
       <button role="tab" data-tab="tracker" aria-selected="false">Sealed tracker</button>
+      <button role="tab" data-tab="cards" aria-selected="false">My cards</button>
       <button role="tab" data-tab="news" aria-selected="false">Market news</button>
     </div>
     <div class="status" id="status"></div>
@@ -253,6 +254,25 @@
     </div>
   </section>
 
+  <!-- ===== My cards ===== -->
+  <section id="tab-cards" hidden>
+    <div class="panel">
+      <h2>Your cards</h2>
+      <p class="hint" id="cards-hint"></p>
+      <form class="track-form" id="own">
+        <label>Card name<input name="name" required></label>
+        <label>Set (optional)<input name="set" size="5" placeholder="mh2"></label>
+        <label>No. (optional)<input name="number" size="5"></label>
+        <label>Quantity<input name="qty" type="number" min="1" value="1"></label>
+        <label>Paid per card (€)<input name="paid" type="number" min="0" step="any"></label>
+        <label><input name="foil" type="checkbox"> Foil</label>
+        <button class="primary">Add</button>
+      </form>
+      <div id="own-msg" class="error"></div>
+      <div class="tbl" id="cards"></div>
+    </div>
+  </section>
+
   <!-- ===== News ===== -->
   <section id="tab-news" hidden>
     <div class="panel">
@@ -294,8 +314,9 @@ function ago(iso) {
 // ---------- tabs ----------
 function tab(name) {
   document.querySelectorAll("[role=tab]").forEach(b => b.setAttribute("aria-selected", b.dataset.tab === name));
-  ["search", "tracker", "news"].forEach(t => $("#tab-" + t).hidden = t !== name);
+  ["search", "tracker", "cards", "news"].forEach(t => $("#tab-" + t).hidden = t !== name);
   if (name === "tracker") loadTracker();
+  if (name === "cards") loadCards();
   if (name === "news") loadNews();
   if (name === "search") $("#q").focus();
 }
@@ -851,6 +872,43 @@ async function loadTracker() {
       <td class="n ${cls(sum("pl"))}">${eur(sum("pl"))}</td><td colspan="2"></td></tr></tfoot></table>`;
   el.querySelectorAll("tbody tr").forEach(tr => tr.onclick = () => { tab("search"); openSealed(+tr.dataset.id); });
 }
+
+// ---------- my cards ----------
+async function loadCards() {
+  const el = $("#cards");
+  let d;
+  try { d = await api("/api/owned"); } catch (e) { el.innerHTML = `<div class="error">${esc(e.message)}</div>`; return; }
+  $("#cards-hint").innerHTML = `Price is Cardmarket's trend (or the cheapest listing). Profit/loss uses the price minus the
+    ${+(d.fee * 100).toFixed(2)}% selling fee, against what you paid. Without a set, the cheapest printing is used.`;
+  if (!d.items.length) { el.innerHTML = '<div class="empty">No cards yet. Add one above.</div>'; return; }
+  const sum = k => d.items.reduce((a, r) => a + (r[k] || 0), 0);
+  el.innerHTML = `<table class="data">
+    <thead><tr><th>Card</th><th>Set</th><th class="n">Qty</th><th class="n">Paid</th><th class="n">Price</th>
+      <th class="n">After fee</th><th class="n">Value</th><th class="n">Profit/loss</th><th></th></tr></thead>
+    <tbody>${d.items.map(r => `<tr><td>${esc(r.name)}${r.foil ? " (foil)" : ""}</td>
+      <td>${esc(r.set || "")} ${esc(r.number || "")}</td><td class="n">${r.qty}</td><td class="n">${eur(r.paid)}</td>
+      <td class="n">${eur(r.price)}</td><td class="n">${eur(r.net)}</td><td class="n">${eur(r.value)}</td>
+      <td class="n ${cls(r.pl)}">${eur(r.pl)}</td>
+      <td><button data-id="${r.id}" data-foil="${r.foil ? 1 : ""}">Remove</button></td></tr>`).join("")}</tbody>
+    <tfoot><tr><td colspan="6">Total</td><td class="n">${eur(sum("value"))}</td>
+      <td class="n ${cls(sum("pl"))}">${eur(sum("pl"))}</td><td></td></tr></tfoot></table>`;
+  el.querySelectorAll("button[data-id]").forEach(b => b.onclick = async () => {
+    await api("/api/disown", {id: +b.dataset.id, foil: !!b.dataset.foil});
+    loadCards();
+  });
+}
+
+$("#own").onsubmit = async ev => {
+  ev.preventDefault();
+  const f = ev.target, msg = $("#own-msg");
+  msg.textContent = "Looking it up…";
+  try {
+    const r = await api("/api/own", {name: f.name.value, set: f.set.value, number: f.number.value,
+      qty: f.qty.value, paid: f.paid.value, foil: f.foil.checked});
+    msg.textContent = r.error || "";
+    if (!r.error) { f.reset(); loadCards(); }
+  } catch (e) { msg.textContent = e.message; }
+};
 
 // ---------- news ----------
 let newsData = null, newsTag = "";

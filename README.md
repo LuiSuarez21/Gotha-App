@@ -29,6 +29,7 @@ Modern Horizons 2 Timeshifts   H2R   11    │     45.40 €    45.78 €    42.
 - **Small local cache**: the large price dataset is downloaded at most once a day and stored in a compressed SQLite database (~22 MB), so later lookups are instant.
 - **Gotha app** (`python server.py`): a browser app with **live search as you type** over every Magic product on Cardmarket (~128,000 cards and sealed products), with ranking, typo tolerance, filters, matching sets, endless scrolling, recent searches and this week's biggest price movers.
 - **Sealed product tracker**: booster boxes, bundles, decks, Secret Lairs… with quantity, price paid, profit/loss and phone alerts. Gotha records their prices every day, because nobody publishes sealed price history for free, and `backfill.py` imports past days from archived copies of Cardmarket's price guide. Each sealed product has a page like the card page: product picture, today / 7 / 30 / 90 days ago, a history chart and the other products of the set.
+- **Card portfolio**: the "My cards" tab keeps the cards you own (quantity, price paid, foil) and shows their value today and the profit or loss after Cardmarket's 5% selling fee.
 - **Price outlook for sealed products**: a transparent score built from price momentum, product age, reprint risk, tournament play and news/social tone, with the evidence behind every signal.
 - **Market news**: latest headlines and posts from MTGGoldfish, Google News and Reddit, tagged (reprints, bans, announcements, sealed, prices).
 
@@ -73,6 +74,7 @@ Gotha (MTG Fetch Prices App)/
 ├── history.py       # Downloads MTGJSON price history and caches it in SQLite
 ├── catalog.py       # Local search index of every Cardmarket product + ranking
 ├── sealed.py        # Sealed price history, tracker and price outlook
+├── portfolio.py     # Cards you own: value and profit/loss after fees
 ├── backfill.py      # One-time import of past sealed prices from archived price guides
 ├── market.py        # News feeds, sentiment and tournament staples
 ├── chart.py         # Writes the chart data for the web page and opens it in the browser
@@ -209,6 +211,8 @@ The page `web/index.html` is a **fixed template**: Python never rewrites it. Onl
 | `GET /api/sealed?id=` | Prices, recorded history, outlook and news for one sealed product |
 | `GET /api/tracked` | Your tracked sealed products with value and profit/loss |
 | `POST /api/track` / `POST /api/untrack` | Add/update or remove a tracked product (saved in `watchlist.json`) |
+| `GET /api/owned` | Your cards with price, price after fee, value and profit/loss |
+| `POST /api/own {"name","set","number","qty","paid","foil"}` / `POST /api/disown {"id","foil"}` | Add/update or remove an owned card (saved in `watchlist.json`) |
 | `GET /api/news?refresh=1` | Latest market news |
 
 ### Live search, ranking, filters and local index (`catalog.py`)
@@ -264,6 +268,18 @@ Press **Track** on a sealed product to add it to `watchlist.json`:
 ```
 
 The **Sealed tracker** tab shows each product's price, the change since the latest recorded day at least a week ago, total value, profit/loss and outlook.
+
+### Card portfolio (`portfolio.py`)
+
+In the **My cards** tab, type a card name (fuzzy, like in `main.py`), optionally a set code and collector number, the quantity, the price paid per card and whether it is foil. Without a set, the cheapest printing is used. The card is saved in `watchlist.json` under `"owned"`, with its Cardmarket product id:
+
+```json
+"owned": [
+  { "id": 566480, "name": "Ragavan, Nimble Pilferer", "set": "MH2", "number": "138", "qty": 2, "paid": 40.0 }
+]
+```
+
+The price is the Cardmarket **trend** (or the cheapest listing if there is no trend). *After fee* is that price minus Cardmarket's selling fee (`SELL_FEE` in `portfolio.py`, 5%; shipping is not counted). Profit/loss is `(after fee − paid) × quantity`, and only shown when you entered the price paid.
 
 ### Price outlook
 

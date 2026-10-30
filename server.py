@@ -30,6 +30,7 @@ import requests
 import chart
 import main
 import market
+import portfolio
 import sealed
 from catalog import Catalog
 from history import History
@@ -125,13 +126,47 @@ def api_untrack(body):
     return {"ok": True}
 
 
+def api_owned(_):
+    return {"items": portfolio.rows(hist), "fee": portfolio.SELL_FEE}
+
+
+def api_own(body):
+    """Adds an owned card. The printing is looked up on Scryfall by name (and set / number)."""
+    qty, paid, foil = int(_num(body.get("qty")) or 1), _num(body.get("paid")), bool(body.get("foil"))
+    with card_lock:
+        name = main.resolve_name(body["name"])
+        found = main.get_printings(name) if name else []
+    if not name:
+        return {"error": f"Card not found on Scryfall: {body['name']}"}
+    want_set, want_no = (body.get("set") or "").strip().lower(), (body.get("number") or "").strip()
+    found = [c for c in found if c.get("cardmarket_id")
+             and (not want_set or c["set"] == want_set)
+             and (not want_no or c["collector_number"] == want_no)]
+    if not found:
+        return {"error": f"No Cardmarket printing of {name} matches that set / number"}
+    kind = "foil" if foil else "normal"
+    # Without a set, take the cheapest printing (like the alerts do)
+    best = min(found, key=lambda c: hist.guide(c["cardmarket_id"]).get(kind, {}).get("trend") or 1e9)
+    with write_lock:
+        portfolio.own({"id": best["cardmarket_id"], "name": name, "set": best["set"].upper(),
+                       "number": best["collector_number"], "foil": foil, "qty": qty, "paid": paid})
+    return {"ok": True, "name": name, "set": best["set"].upper()}
+
+
+def api_disown(body):
+    with write_lock:
+        portfolio.disown(int(body["id"]), bool(body.get("foil")))
+    return {"ok": True}
+
+
 def api_news(q):
     return market.news(refresh=q.get("refresh") == "1")
 
 
 GET = {"/api/search": api_search, "/api/info": api_info, "/api/sealed": api_sealed,
-       "/api/tracked": api_tracked, "/api/news": api_news}
-POST = {"/api/card": api_card, "/api/track": api_track, "/api/untrack": api_untrack}
+       "/api/tracked": api_tracked, "/api/owned": api_owned, "/api/news": api_news}
+POST = {"/api/card": api_card, "/api/track": api_track, "/api/untrack": api_untrack,
+        "/api/own": api_own, "/api/disown": api_disown}
 
 
 class Handler(SimpleHTTPRequestHandler):
