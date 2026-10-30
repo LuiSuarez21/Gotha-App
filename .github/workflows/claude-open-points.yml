@@ -8,7 +8,7 @@ on:
   schedule:
     # O GitHub usa hora UTC. Lisboa é UTC+0 no inverno e UTC+1 no verão,
     # por isso há duas horas e o passo "Ver se há trabalho" escolhe a certa.
-    - cron: "0 8 */2 * *"   # 9h em Lisboa no inverno
+    # cron: "0 8 */2 * *"   # 9h em Lisboa no inverno
   workflow_dispatch:         # botão "Run workflow" para correr à mão
 
 permissions: {}              # nada por defeito; cada job pede só o que precisa
