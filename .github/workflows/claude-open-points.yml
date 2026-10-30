@@ -1,0 +1,229 @@
+# Dia sim, dia não às 9h (Lisboa): o Claude faz o primeiro "- [ ]" de OPEN_POINTS.md
+# e abre um PR. Dois jobs:
+#  - "claude": o Claude trabalha só com permissão de LEITURA. Não consegue escrever no repo.
+#  - "pr": sem Claude. Aplica as mudanças num branch claude/... e abre o PR para main.
+name: Claude - open points
+
+on:
+  schedule:
+    # O GitHub usa hora UTC. Lisboa é UTC+0 no inverno e UTC+1 no verão,
+    # por isso há duas horas e o passo "Ver se há trabalho" escolhe a certa.
+    - cron: "0 9 */2 * *"   # 9h em Lisboa no inverno
+    - cron: "0 8 */2 * *"   # 9h em Lisboa no verão
+  workflow_dispatch:         # botão "Run workflow" para correr à mão
+
+permissions: {}              # nada por defeito; cada job pede só o que precisa
+
+concurrency:
+  group: claude-open-points
+  cancel-in-progress: false
+
+jobs:
+  claude:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read         # só leitura: o Claude não consegue fazer push
+      pull-requests: read
+    outputs:
+      changed: ${{ steps.patch.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false   # não deixa o token guardado no git
+
+      - name: Ver se há trabalho
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SCHEDULE: ${{ github.event.schedule }}
+        run: |
+          go=true
+          # Hora certa? Só corre o cron que dá 9h em Lisboa nesta altura do ano.
+          if [ -n "$SCHEDULE" ]; then
+            offset=$(TZ=Europe/Lisbon date +%z)        # +0000 inverno, +0100 verão
+            if [ "$offset" = "+0000" ] && [ "$SCHEDULE" != "0 9 */2 * *" ]; then go=false; fi
+            if [ "$offset" = "+0100" ] && [ "$SCHEDULE" != "0 8 */2 * *" ]; then go=false; fi
+            [ "$go" = false ] && echo "::notice::Não são 9h em Lisboa neste horário. Fica para o outro."
+          fi
+          # Não empilha PRs.
+          if [ "$go" = true ]; then
+            open=$(gh pr list --repo "${{ github.repository }}" --label claude-open-points --state open --json number --jq 'length')
+            if [ "$open" != "0" ]; then
+              echo "::notice::Há um PR do Claude por rever. Hoje não faço nada."; go=false
+            fi
+          fi
+          # Ainda há pontos por fazer?
+          if [ "$go" = true ] && ! grep -q '^- \[ \]' OPEN_POINTS.md; then
+            echo "::notice::Não há open points por fazer."; go=false
+          fi
+          echo "go=$go" >> "$GITHUB_OUTPUT"
+
+      # Antes de gastar tokens: o GitHub e as fontes de dados respondem?
+      # Se algum falhar, o job pára aqui e o Claude nem arranca.
+      - name: Verificar acesso (0 tokens)
+        if: steps.check.outputs.go == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          fail=0
+          gh api "repos/${{ github.repository }}" --jq .full_name > /dev/null \
+            || { echo "::error::Sem acesso ao repositório no GitHub."; fail=1; }
+          for url in https://api.scryfall.com https://mtgjson.com https://downloads.s3.cardmarket.com/productCatalog/priceGuide/price_guide_1.json; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' -m 20 -r 0-0 "$url" || echo 000)
+            if [ "$code" = "000" ] || [ "$code" -ge 500 ]; then
+              echo "::error::Sem acesso a $url (HTTP $code)."; fail=1
+            else
+              echo "ok $url ($code)"
+            fi
+          done
+          exit $fail
+
+      # O repositório não tem os meus dados: usa a watchlist de exemplo.
+      - name: Preparar dados de exemplo
+        if: steps.check.outputs.go == 'true'
+        run: cp watchlist.example.json watchlist.json
+
+      - uses: actions/setup-python@v5
+        if: steps.check.outputs.go == 'true'
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependências
+        if: steps.check.outputs.go == 'true'
+        run: pip install requests
+
+      - name: Claude faz o próximo open point
+        if: steps.check.outputs.go == 'true'
+        uses: anthropics/claude-code-action@v1
+        timeout-minutes: 25           # tempo máximo do Claude
+        with:
+          github_token: ${{ github.token }}   # o token deste job: só leitura
+          # Usa UM dos dois (o outro fica vazio):
+          #  - CLAUDE_CODE_OAUTH_TOKEN: a tua subscrição Claude (gera com `claude setup-token`)
+          #  - ANTHROPIC_API_KEY: chave da API (paga por uso)
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            You are working on Gotha alone, from a scheduled GitHub Action. Nobody is watching.
+            Read CLAUDE.md and README.md first and follow their rules.
+
+            1. Open OPEN_POINTS.md. Take the FIRST item under "## Lista" that is still "- [ ]".
+               Work on that one item only.
+            2. Implement it in the current checkout. Keep the change small and in the style of the
+               existing code. If the item is too big for one PR, do a first useful part, and add the
+               rest as a new "- [ ]" item right below it.
+            3. Check that it works with the gotha-check skill
+               (python server.py --no-browser, python main.py "Card name" --no-chart).
+               The first run downloads the price data and takes about 2 minutes.
+            4. In OPEN_POINTS.md change the item from "- [ ]" to "- [x]".
+            5. Update README.md if a user needs to know about the change.
+            6. Write the pull request text, in Portuguese (Portugal):
+               - .claude-pr/title.txt: one line.
+               - .claude-pr/body.md: what you did, how to try it, what you checked,
+                 and any doubts or limits.
+
+            If the item is unclear, or you can't make it work: don't change any code.
+            Add a line "  - ❓ <your question>" under the item in OPEN_POINTS.md,
+            and write .claude-pr/title.txt as "Dúvidas: <item>" with the questions in body.md.
+
+            STOP RULE (this saves money, follow it strictly):
+            If a command fails because of network, access or setup - a site or the repository
+            can't be reached, DNS/timeout, HTTP 401/403/404/429/5xx, a missing secret or tool,
+            "permission denied" - try it again ONCE at most. If it fails again, do not look for
+            workarounds and do not continue with other work. Write the command and the error
+            to .claude-pr/STOP and end your turn right away.
+            The same if the same code error comes back 3 times and you don't know why.
+
+            Never run alerts.py. Never touch data/sealed_history.sqlite or .github/.
+            Don't commit, push or create branches: the workflow does that after you.
+            watchlist.json here is only the example. cache/, data/ and web/data.js are not in git.
+            If you add a new data file, add it to .gitignore and add an example file instead.
+          claude_args: |
+            --max-turns 40
+            --max-budget-usd 3
+            --allowedTools "Read,Write,Edit,Glob,Grep,Skill,WebSearch,WebFetch,Bash(python:*),Bash(python3:*),Bash(pip:*),Bash(curl:*),Bash(ls:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(sleep:*),Bash(kill:*),Bash(mkdir:*),Bash(git status:*),Bash(git diff:*)"
+            --disallowedTools "Bash(python alerts.py:*),Bash(python3 alerts.py:*),Bash(git commit:*),Bash(git push:*)"
+
+      - name: O Claude parou por erro?
+        if: steps.check.outputs.go == 'true'
+        run: |
+          if [ -f .claude-pr/STOP ]; then
+            echo "::error::O Claude parou: $(tr '\n' ' ' < .claude-pr/STOP)"
+            exit 1
+          fi
+
+      # Deita fora o que a app muda ao correr e guarda as mudanças do Claude num patch.
+      - name: Guardar as mudanças
+        id: patch
+        if: steps.check.outputs.go == 'true'
+        run: |
+          git checkout -- .github
+          git clean -fdq .github
+          mkdir -p "$RUNNER_TEMP/out"
+          if [ -f .claude-pr/title.txt ]; then
+            head -n1 .claude-pr/title.txt > "$RUNNER_TEMP/out/title.txt"
+          else
+            echo "Claude: open point" > "$RUNNER_TEMP/out/title.txt"
+          fi
+          cp .claude-pr/body.md "$RUNNER_TEMP/out/body.md" 2>/dev/null || echo "Sem descrição." > "$RUNNER_TEMP/out/body.md"
+          rm -rf .claude-pr
+          git add -A
+          git diff --cached --binary > "$RUNNER_TEMP/out/change.patch"
+          git diff --cached --stat
+          if [ -s "$RUNNER_TEMP/out/change.patch" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::O Claude não mudou nada."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: steps.patch.outputs.changed == 'true'
+        with:
+          name: claude-change
+          path: ${{ runner.temp }}/out/
+          retention-days: 7
+
+  pr:
+    needs: claude
+    if: needs.claude.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write        # para criar o branch claude/...
+      pull-requests: write   # para abrir o PR
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: claude-change
+          path: ${{ runner.temp }}/out
+
+      # Segurança: o patch não pode mexer em workflows nem nas bases de dados.
+      - name: Aplicar as mudanças
+        id: apply
+        run: |
+          out="$RUNNER_TEMP/out"
+          if git apply --numstat "$out/change.patch" | awk '{print $3}' | grep -E '^(\.github/|data/|cache/|watchlist\.json$|ntfy_topic\.txt$|web/data\.js$)'; then
+            echo "::error::O patch mexe em ficheiros proibidos. Não crio o PR."
+            exit 1
+          fi
+          git apply --index "$out/change.patch"
+          echo "title=$(cat "$out/title.txt")" >> "$GITHUB_OUTPUT"
+
+      # Cria o branch claude/open-point-N e o PR para main. Nunca faz push para main.
+      - name: Criar pull request
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: claude/open-point-${{ github.run_number }}
+          base: main
+          title: ${{ steps.apply.outputs.title }}
+          body-path: ${{ runner.temp }}/out/body.md
+          commit-message: ${{ steps.apply.outputs.title }}
+          labels: claude-open-points
+          delete-branch: true

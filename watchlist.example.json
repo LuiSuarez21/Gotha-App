@@ -1,0 +1,7 @@
+{
+  "cards": [
+    { "name": "Kasmina, Enigma Sage", "below": 3.0 },
+    { "name": "Ragavan, Nimble Pilferer", "above": 150.0, "foil": true, "price": "trend" }
+  ],
+  "sealed": []
+}
