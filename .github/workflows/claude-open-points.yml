@@ -2,14 +2,13 @@
 # e abre um PR. Dois jobs:
 #  - "claude": o Claude trabalha só com permissão de LEITURA. Não consegue escrever no repo.
 #  - "pr": sem Claude. Aplica as mudanças num branch claude/... e abre o PR para main.
-name: Claude - open points
+name: Claude - Automated Open Points
 
 on:
   schedule:
     # O GitHub usa hora UTC. Lisboa é UTC+0 no inverno e UTC+1 no verão,
     # por isso há duas horas e o passo "Ver se há trabalho" escolhe a certa.
-    - cron: "0 9 */2 * *"   # 9h em Lisboa no inverno
-    - cron: "0 8 */2 * *"   # 9h em Lisboa no verão
+    - cron: "0 8 */2 * *"   # 9h em Lisboa no inverno
   workflow_dispatch:         # botão "Run workflow" para correr à mão
 
 permissions: {}              # nada por defeito; cada job pede só o que precisa
