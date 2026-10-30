@@ -216,3 +216,16 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# PR text written by the Claude action
+.claude-pr/
+
+# Private ntfy topic (works like a password)
+ntfy_topic.txt
+
+# My data: personal or generated, never on GitHub
+watchlist.json
+data/
+cache/
+web/data.js
+*.tmp

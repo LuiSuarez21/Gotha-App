@@ -28,7 +28,8 @@ There are no automated tests and no linter. To check a change, run the app and t
 - Modules: `history.py` (price data), `catalog.py` (search index),
   `sealed.py` (sealed history, tracker, outlook), `market.py` (news, tournament staples),
   `chart.py` (writes `web/data.js`).
-- `watchlist.json` - my cards, my sealed products and my alert targets.
+- `watchlist.json` - my cards, my sealed products and my alert targets (not in git;
+  `watchlist.example.json` is the example).
 - `web/app.html` - the browser app. `web/index.html` - the chart page.
 
 ## How the parts fit together
@@ -78,18 +79,19 @@ There are no automated tests and no linter. To check a change, run the app and t
   and download from the backfill archive one file at a time.
 - Don't scrape Cardmarket pages. It is against their terms.
   Use only their free daily files (product lists and price guide).
-- The `ntfy_topic` in `watchlist.json` works like a password. Don't share it.
+- The ntfy topic in `ntfy_topic.txt` works like a password. Don't share it and don't commit it.
+  The repository is public.
 - Keep code comments and the README simple and short, like they are now.
 
 ## Git
 
 - The main branch is `main`. New work goes on a feature branch.
 - Don't commit or push unless I ask.
-- The databases in `cache/` and `data/` are tracked in git. Running the app changes them,
-  so they show up in `git status`. Don't commit those changes unless I ask.
-- After a fresh clone (for example in a cloud session) the cache files look new,
-  so Gotha uses the old data inside them for up to 20 hours.
-  Delete `cache/` to get fresh data. Never delete `data/`.
+- The repository is public. My data is NOT in git and must never be committed:
+  `watchlist.json`, `ntfy_topic.txt`, `data/`, `cache/`, `web/data.js` (all in `.gitignore`).
+- After a fresh clone (for example in a cloud session) there is no data:
+  copy `watchlist.example.json` to `watchlist.json`. The first run downloads the prices,
+  and the sealed history starts empty.
 
 ## Planned features
 

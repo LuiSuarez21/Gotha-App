@@ -59,7 +59,7 @@ open the address it prints, and look. Otherwise tell me the page wasn't checked 
 - Never run `alerts.py`, not even `--test`. It sends real notifications to my phone.
 - Don't call `/api/track` or `/api/untrack`. They change `watchlist.json`, which is my real list.
   If a change touches tracking, copy `watchlist.json` first, test, put it back,
-  and make sure `git diff watchlist.json` shows nothing.
+  and make sure it is the same as the copy.
 - Starting the server saves today's sealed prices in `data/sealed_history.sqlite`
   and may refresh `cache/`. That is normal, the same as when I open the app.
   Those files are tracked in git: don't commit them unless I ask.

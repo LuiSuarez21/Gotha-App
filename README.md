@@ -77,7 +77,9 @@ Gotha (MTG Fetch Prices App)/
 ├── market.py        # News feeds, sentiment and tournament staples
 ├── chart.py         # Writes the chart data for the web page and opens it in the browser
 ├── alerts.py        # Daily price check: sends phone notifications for the watchlist
-├── watchlist.json   # Your cards, sealed products and targets (+ your private ntfy topic)
+├── watchlist.json   # Your cards, sealed products and targets (not in git)
+├── watchlist.example.json  # Example: copy it to watchlist.json
+├── ntfy_topic.txt   # Your private ntfy topic (not in git)
 ├── web/
 │   ├── app.html     # The Gotha app: search, sealed tracker, market news
 │   ├── index.html   # The chart page (fixed template, never rewritten)
@@ -93,6 +95,10 @@ Gotha (MTG Fetch Prices App)/
 ```
 
 `cache/` and `web/data.js` are created automatically and can be deleted safely at any time. **`data/` can't be rebuilt**: it holds the sealed price history Gotha recorded, one day at a time.
+
+Your own data is not in git: `watchlist.json`, `ntfy_topic.txt`, `data/`, `cache/` and `web/data.js`.
+After a fresh clone, copy `watchlist.example.json` to `watchlist.json`.
+Back up `data/` yourself: GitHub doesn't keep a copy any more.
 
 ---
 
@@ -290,18 +296,19 @@ Headlines come from MTGGoldfish's feed, two Google News searches and Reddit's r/
 Notifications use [ntfy](https://ntfy.sh), which is free and needs no account:
 
 1. Install the **ntfy** app ([Android](https://play.google.com/store/apps/details?id=io.heckel.ntfy) / [iPhone](https://apps.apple.com/app/ntfy/id1625396347)).
-2. Tap **+** and subscribe to the topic in `watchlist.json` (`ntfy_topic`, e.g. `gotha-ede464547619`).
-3. Test it: `python alerts.py --test`
+2. Make up a random topic name (e.g. `gotha-` + random letters) and put it in a file `ntfy_topic.txt` next to `alerts.py`.
+   This file is not in git.
+3. In the app, tap **+** and subscribe to that topic.
+4. Test it: `python alerts.py --test`
 
 The topic name works like a password: anyone who knows it can read your alerts, so keep it random.
 
 ### 2. Choose your cards
 
-Edit `watchlist.json`:
+Edit `watchlist.json` (first time: copy `watchlist.example.json`):
 
 ```json
 {
-  "ntfy_topic": "gotha-ede464547619",
   "cards": [
     { "name": "Kasmina, Enigma Sage", "below": 3.00 },
     { "name": "Ragavan, Nimble Pilferer", "below": 30.00, "set": "MH2" },

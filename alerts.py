@@ -26,8 +26,16 @@ from history import GUIDE_FIELDS, History
 
 BASE_DIR = Path(__file__).resolve().parent
 WATCHLIST = BASE_DIR / "watchlist.json"
+TOPIC_FILE = BASE_DIR / "ntfy_topic.txt"  # private, not in git
 LOG = BASE_DIR / "cache" / "alerts.log"
 NTFY = "https://ntfy.sh"
+
+
+def get_topic():
+    """The ntfy topic works like a password, so it lives in ntfy_topic.txt, not in git."""
+    if TOPIC_FILE.exists():
+        return TOPIC_FILE.read_text(encoding="utf-8").strip() or None
+    return None
 
 
 def notify(topic, title, message, click=None):
@@ -113,8 +121,12 @@ def check_sealed(config, hist):
 
 
 def run():
+    if not WATCHLIST.exists():
+        raise SystemExit("No watchlist.json: copy watchlist.example.json (see README).")
     config = json.loads(WATCHLIST.read_text(encoding="utf-8"))
-    topic = config["ntfy_topic"]
+    topic = get_topic()
+    if not topic:
+        raise SystemExit("No ntfy topic: put it in ntfy_topic.txt (see README).")
 
     if "--test" in sys.argv:
         notify(topic, "Gotha test", "Price alerts are working!")
@@ -152,8 +164,9 @@ if __name__ == "__main__":
         traceback.print_exc()
         # Let the phone know the daily check failed, if we can
         try:
-            topic = json.loads(WATCHLIST.read_text(encoding="utf-8"))["ntfy_topic"]
-            notify(topic, "Gotha: price check failed", str(e))
+            topic = get_topic()
+            if topic:
+                notify(topic, "Gotha: price check failed", str(e))
         except Exception:
             pass
         sys.exit(1)
