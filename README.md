@@ -76,6 +76,7 @@ Gotha (MTG Fetch Prices App)/
 ├── backfill.py      # One-time import of past sealed prices from archived price guides
 ├── market.py        # News feeds, sentiment and tournament staples
 ├── chart.py         # Writes the chart data for the web page and opens it in the browser
+├── portfolio.py     # Cards I own: value today and profit after fees
 ├── alerts.py        # Daily price check: sends phone notifications for the watchlist
 ├── watchlist.json   # Your cards, sealed products and targets (not in git)
 ├── watchlist.example.json  # Example: copy it to watchlist.json
@@ -284,6 +285,20 @@ The weighted average gives **Likely up** (> 0.2), **Likely down** (< −0.2) or 
 ### Market news (`market.py`)
 
 Headlines come from MTGGoldfish's feed, two Google News searches and Reddit's r/mtgfinance and r/magicTCG RSS feeds, cached for an hour. Each one is tagged (reprint, ban, announcement, sealed, price) with simple keyword rules, and gets a tone from −1 to +1 from positive/negative word lists. A feed that fails (Reddit often answers *429 Too Many Requests*) is skipped and listed on the page; items already cached are kept for 30 days.
+
+---
+
+## Portfolio (`portfolio.py`)
+
+Shows the cards you own, what you paid, their value today and the profit or loss after Cardmarket's selling fee (5%, `FEE` in `portfolio.py`). Add them to `watchlist.json` (see `watchlist.example.json`):
+
+```json
+"portfolio": [
+  { "name": "Ragavan, Nimble Pilferer", "qty": 1, "paid": 40.0, "set": "MH2", "foil": false }
+]
+```
+
+`paid` is the price of **one** card. `set`, `foil` and `price` work as in the alerts (default: cheapest printing, `trend` price). Run `python portfolio.py`. Shipping and taxes are not counted.
 
 ---
 

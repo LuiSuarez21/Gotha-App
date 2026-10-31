@@ -3,5 +3,9 @@
     { "name": "Kasmina, Enigma Sage", "below": 3.0 },
     { "name": "Ragavan, Nimble Pilferer", "above": 150.0, "foil": true, "price": "trend" }
   ],
-  "sealed": []
+  "sealed": [],
+  "portfolio": [
+    { "name": "Kasmina, Enigma Sage", "qty": 2, "paid": 1.5 },
+    { "name": "Ragavan, Nimble Pilferer", "qty": 1, "paid": 40.0, "set": "MH2" }
+  ]
 }
