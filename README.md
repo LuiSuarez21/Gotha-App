@@ -54,7 +54,7 @@ Your cards, sealed products and alert targets are in `watchlist.json`:
 
 - `cards`: alert when the price is `below` or `above` a value. Optional: `set`, `foil` and `price` (`low`, `trend`, `avg1`, `avg7` or `avg30`).
 - `sealed`: added with the **Track** button in the app.
-- `portfolio`: cards you own. `paid` is the price of one card.
+- `portfolio`: cards you own. `paid` is the price of one card. You can also add and remove them in the **Portfolio** tab of the app.
 
 **Phone alerts** use [ntfy](https://ntfy.sh) (free, no account): install the app, put a random topic name in `ntfy_topic.txt`, subscribe to it in the app and run `python run.py alerts:test`. The topic works like a password, so keep it secret. A Windows task, *Gotha price alerts*, can run the check every day at 9:00. It is off by default.
 

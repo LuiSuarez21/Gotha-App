@@ -200,6 +200,7 @@
     <div class="tabs" role="tablist">
       <button role="tab" data-tab="search" aria-selected="true">Search</button>
       <button role="tab" data-tab="tracker" aria-selected="false">Sealed tracker</button>
+      <button role="tab" data-tab="portfolio" aria-selected="false">Portfolio</button>
       <button role="tab" data-tab="news" aria-selected="false">Market news</button>
     </div>
     <div class="status" id="status"></div>
@@ -253,6 +254,24 @@
     </div>
   </section>
 
+  <!-- ===== Portfolio ===== -->
+  <section id="tab-portfolio" hidden>
+    <div class="panel">
+      <h2>Your cards</h2>
+      <p class="hint" id="pf-hint">Value is Cardmarket's trend price (cheapest printing). Profit is after the selling fee.</p>
+      <form id="pf-form" class="filters">
+        <input id="pf-name" placeholder="Card name" required aria-label="Card name">
+        <input id="pf-set" class="set" placeholder="Set code" aria-label="Set code">
+        <input id="pf-qty" class="price" type="number" min="1" step="1" placeholder="Qty" aria-label="Quantity">
+        <input id="pf-paid" class="price" type="number" min="0" step="any" placeholder="Paid € (one)" required aria-label="Price paid for one card">
+        <label><input id="pf-foil" type="checkbox"> Foil</label>
+        <button type="submit">Add</button>
+      </form>
+      <div class="error" id="pf-error"></div>
+      <div class="tbl" id="portfolio"></div>
+    </div>
+  </section>
+
   <!-- ===== News ===== -->
   <section id="tab-news" hidden>
     <div class="panel">
@@ -294,8 +313,9 @@ function ago(iso) {
 // ---------- tabs ----------
 function tab(name) {
   document.querySelectorAll("[role=tab]").forEach(b => b.setAttribute("aria-selected", b.dataset.tab === name));
-  ["search", "tracker", "news"].forEach(t => $("#tab-" + t).hidden = t !== name);
+  ["search", "tracker", "portfolio", "news"].forEach(t => $("#tab-" + t).hidden = t !== name);
   if (name === "tracker") loadTracker();
+  if (name === "portfolio") loadPortfolio();
   if (name === "news") loadNews();
   if (name === "search") $("#q").focus();
 }
@@ -851,6 +871,45 @@ async function loadTracker() {
       <td class="n ${cls(sum("pl"))}">${eur(sum("pl"))}</td><td colspan="2"></td></tr></tfoot></table>`;
   el.querySelectorAll("tbody tr").forEach(tr => tr.onclick = () => { tab("search"); openSealed(+tr.dataset.id); });
 }
+
+// ---------- portfolio ----------
+async function loadPortfolio() {
+  const el = $("#portfolio");
+  el.innerHTML = '<div class="empty">Loading… (one Scryfall lookup per card, can take a moment)</div>';
+  let d;
+  try { d = await api("/api/portfolio"); } catch (e) { el.innerHTML = `<div class="error">${esc(e.message)}</div>`; return; }
+  const rows = [...d.items.map(r => ({...r, ok: true})), ...d.errors].sort((a, b) => a.index - b.index);
+  if (!rows.length) { el.innerHTML = '<div class="empty">No cards yet. Add one above.</div>'; return; }
+  const sum = k => d.items.reduce((a, r) => a + r[k], 0);
+  const paid = sum("paid"), profit = sum("profit");
+  el.innerHTML = `<table class="data">
+    <thead><tr><th>Card</th><th>Printing</th><th class="n">Qty</th><th class="n">Paid</th><th class="n">Value</th>
+      <th class="n">After fees</th><th class="n">Profit/loss</th><th></th></tr></thead>
+    <tbody>${rows.map(r => r.ok
+      ? `<tr><td>${esc(r.name)}</td><td>${esc(r.where)}</td><td class="n">${r.qty}</td><td class="n">${eur(r.paid)}</td>
+          <td class="n">${eur(r.value)}</td><td class="n">${eur(r.after_fees)}</td><td class="n ${cls(r.profit)}">${eur(r.profit)}</td>
+          <td><button type="button" data-rm="${r.index}">Remove</button></td></tr>`
+      : `<tr><td>${esc(r.name)}</td><td colspan="6" class="error">${esc(r.error)}</td>
+          <td><button type="button" data-rm="${r.index}">Remove</button></td></tr>`).join("")}</tbody>
+    <tfoot><tr><td colspan="3">Total (${(d.fee * 100).toFixed(0)}% fee, prices ${esc(d.guide_date)})</td><td class="n">${eur(paid)}</td>
+      <td class="n">${eur(sum("value"))}</td><td class="n">${eur(sum("after_fees"))}</td>
+      <td class="n ${cls(profit)}">${eur(profit)}${paid ? ` (${pct(profit / paid)})` : ""}</td><td></td></tr></tfoot></table>`;
+  el.querySelectorAll("[data-rm]").forEach(b => b.onclick = async () => {
+    await api("/api/portfolio/remove", {index: +b.dataset.rm});
+    loadPortfolio();
+  });
+}
+
+$("#pf-form").onsubmit = async ev => {
+  ev.preventDefault();
+  $("#pf-error").textContent = "";
+  try {
+    await api("/api/portfolio", {name: $("#pf-name").value, set: $("#pf-set").value, qty: $("#pf-qty").value,
+                                  paid: $("#pf-paid").value, foil: $("#pf-foil").checked});
+  } catch (e) { $("#pf-error").textContent = e.message; return; }
+  ev.target.reset();
+  loadPortfolio();
+};
 
 // ---------- news ----------
 let newsData = null, newsTag = "";
