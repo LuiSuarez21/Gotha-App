@@ -33,6 +33,7 @@ All commands are in [`run.py`](run.py), like the scripts of a `package.json`. Ru
 | `python run.py app` | Start the browser app (`app:nobrowser` doesn't open the browser) |
 | `python run.py card "Ragavan, Nimble Pilferer"` | Look up a card in the terminal and open its chart (`card:text` for the terminal only) |
 | `python run.py portfolio` | Value of the cards you own and profit after fees |
+| `python run.py scanner` | Cards whose 7-day average is far above the 30-day one (add `--down`, `--foil`, `--rise 40`, `--min 10`) |
 | `python run.py status` | How fresh the local price data is |
 | `python run.py movers` | Biggest price risers this week (add `--down` for fallers) |
 | `python run.py check` | Start the app, test its pages and stop it |
@@ -79,7 +80,7 @@ The data is saved in small local SQLite databases and refreshed once a day. "Tod
 | `catalog.py` | Search index (`cache/catalog.sqlite`) |
 | `sealed.py` | Sealed price history, tracker and outlook (`data/sealed_history.sqlite`) |
 | `market.py` | News and tournament staples |
-| `portfolio.py`, `alerts.py`, `backfill.py` | Portfolio, phone alerts and the import of past sealed prices |
+| `portfolio.py`, `scanner.py`, `alerts.py`, `backfill.py` | Portfolio, phone alerts and the import of past sealed prices |
 | `run.py` | All the commands |
 
 Prices are Cardmarket prices in EUR only. Charts by [Chart.js](https://www.chartjs.org).
