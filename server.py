@@ -30,6 +30,7 @@ import requests
 import chart
 import main
 import market
+import portfolio
 import sealed
 from catalog import Catalog
 from history import History
@@ -125,13 +126,56 @@ def api_untrack(body):
     return {"ok": True}
 
 
+def api_portfolio(_):
+    """The cards I own, valued with portfolio.evaluate (one Scryfall lookup at a time)."""
+    rows, errors = [], []
+    for i, e in enumerate(sealed.load_watchlist().get("portfolio", [])):
+        try:
+            with card_lock:
+                rows.append({"index": i, "set": e.get("set"), "foil": bool(e.get("foil")),
+                             **portfolio.evaluate(e, hist)})
+        except (ValueError, KeyError, requests.RequestException) as ex:
+            errors.append({"index": i, "name": e.get("name"), "error": str(ex)})
+    return {"items": rows, "errors": errors, "fee": portfolio.FEE, "guide_date": hist.guide_date}
+
+
+def api_portfolio_add(body):
+    entry = {"name": str(body["name"]).strip(), "qty": int(_num(body.get("qty")) or 1),
+             "paid": _num(body.get("paid")), "set": str(body.get("set") or "").strip() or None,
+             "foil": True if body.get("foil") else None}
+    if not entry["name"] or entry["paid"] is None:
+        return {"error": "Name and price paid are needed"}
+    with card_lock:
+        exact = main.resolve_name(entry["name"])
+    if not exact:
+        return {"error": f"Card not found on Scryfall: {entry['name']}"}
+    entry["name"] = exact
+    with write_lock:
+        config = sealed.load_watchlist()
+        config["portfolio"] = config.get("portfolio", []) + [
+            {k: v for k, v in entry.items() if v is not None}]
+        sealed._write_watchlist(config)
+    return {"ok": True}
+
+
+def api_portfolio_remove(body):
+    with write_lock:
+        config = sealed.load_watchlist()
+        items = config.get("portfolio", [])
+        del items[int(body["index"])]
+        config["portfolio"] = items
+        sealed._write_watchlist(config)
+    return {"ok": True}
+
+
 def api_news(q):
     return market.news(refresh=q.get("refresh") == "1")
 
 
 GET = {"/api/search": api_search, "/api/info": api_info, "/api/sealed": api_sealed,
-       "/api/tracked": api_tracked, "/api/news": api_news}
-POST = {"/api/card": api_card, "/api/track": api_track, "/api/untrack": api_untrack}
+       "/api/tracked": api_tracked, "/api/news": api_news, "/api/portfolio": api_portfolio}
+POST = {"/api/card": api_card, "/api/track": api_track, "/api/untrack": api_untrack,
+        "/api/portfolio": api_portfolio_add, "/api/portfolio/remove": api_portfolio_remove}
 
 
 class Handler(SimpleHTTPRequestHandler):
