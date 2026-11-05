@@ -17,6 +17,8 @@ Quando o PR é aceite (merge), o ponto fica marcado `- [x]`.
 - [x] Opportunity scanner: scan diário do price guide do Cardmarket à procura de sinais
       (por exemplo a média de 7 dias a subir rápido em comparação com a média de 30 dias).
       (Primeira parte feita: `python scanner.py` no terminal.)
-- [ ] Opportunity scanner: mostrar o scan na app do browser e/ou enviá-lo por notificação.
+- [x] Opportunity scanner: mostrar o scan na app do browser e/ou enviá-lo por notificação.
+      (Primeira parte feita: separador "Scanner" na app, `/api/scan`.)
+- [ ] Opportunity scanner: enviar o scan por notificação (ntfy), por exemplo no `alerts.py`.
 - [ ] Fee calculator: o preço de venda que preciso para X% de lucro depois das fees do Cardmarket e dos portes.
 - [ ] Trade journal: registo de compras e vendas, com resultados por mês.

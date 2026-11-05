@@ -201,6 +201,7 @@
       <button role="tab" data-tab="search" aria-selected="true">Search</button>
       <button role="tab" data-tab="tracker" aria-selected="false">Sealed tracker</button>
       <button role="tab" data-tab="portfolio" aria-selected="false">Portfolio</button>
+      <button role="tab" data-tab="scanner" aria-selected="false">Scanner</button>
       <button role="tab" data-tab="news" aria-selected="false">Market news</button>
     </div>
     <div class="status" id="status"></div>
@@ -272,6 +273,23 @@
     </div>
   </section>
 
+  <!-- ===== Scanner ===== -->
+  <section id="tab-scanner" hidden>
+    <div class="panel">
+      <h2>Opportunity scanner</h2>
+      <p class="hint">Cards whose 7-day average is far from the 30-day average (today's price guide).</p>
+      <form id="sc-form" class="filters">
+        <select id="sc-dir" aria-label="Direction"><option value="">Rising</option><option value="1">Falling</option></select>
+        <input id="sc-min" class="price" type="number" min="0" step="any" value="5" aria-label="Lowest 30-day average in euro" title="Lowest 30-day average (EUR)">
+        <input id="sc-rise" class="price" type="number" min="0" step="any" value="25" aria-label="Change in percent" title="7d vs 30d (%)">
+        <label><input id="sc-foil" type="checkbox"> Foil</label>
+        <button type="submit">Scan</button>
+      </form>
+      <div class="error" id="sc-error"></div>
+      <div class="tbl" id="scan"></div>
+    </div>
+  </section>
+
   <!-- ===== News ===== -->
   <section id="tab-news" hidden>
     <div class="panel">
@@ -313,9 +331,10 @@ function ago(iso) {
 // ---------- tabs ----------
 function tab(name) {
   document.querySelectorAll("[role=tab]").forEach(b => b.setAttribute("aria-selected", b.dataset.tab === name));
-  ["search", "tracker", "portfolio", "news"].forEach(t => $("#tab-" + t).hidden = t !== name);
+  ["search", "tracker", "portfolio", "scanner", "news"].forEach(t => $("#tab-" + t).hidden = t !== name);
   if (name === "tracker") loadTracker();
   if (name === "portfolio") loadPortfolio();
+  if (name === "scanner" && !$("#scan").innerHTML) loadScan();
   if (name === "news") loadNews();
   if (name === "search") $("#q").focus();
 }
@@ -910,6 +929,26 @@ $("#pf-form").onsubmit = async ev => {
   ev.target.reset();
   loadPortfolio();
 };
+
+// ---------- scanner ----------
+async function loadScan() {
+  const el = $("#scan");
+  $("#sc-error").textContent = "";
+  el.innerHTML = '<div class="empty">Scanning…</div>';
+  const q = new URLSearchParams({min: $("#sc-min").value, rise: $("#sc-rise").value,
+                                 down: $("#sc-dir").value, foil: $("#sc-foil").checked ? "1" : ""});
+  let d;
+  try { d = await api("/api/scan?" + q); } catch (e) { el.innerHTML = ""; $("#sc-error").textContent = e.message; return; }
+  if (!d.items.length) { el.innerHTML = '<div class="empty">Nothing found. Try a lower change or price.</div>'; return; }
+  const c = v => v == null ? null : v / 100;
+  el.innerHTML = `<table class="data static">
+    <thead><tr><th>Card</th><th>Set</th><th class="n">Trend</th><th class="n">Avg 7d</th><th class="n">Avg 30d</th><th class="n">7d vs 30d</th></tr></thead>
+    <tbody>${d.items.map(r => `<tr><td>${esc(r.name)}</td><td>${esc(r.set || "?")}</td><td class="n">${eur(c(r.trend))}</td>
+      <td class="n">${eur(c(r.avg7))}</td><td class="n">${eur(c(r.avg30))}</td>
+      <td class="n ${cls(r.change)}">${pct(r.change)}</td></tr>`).join("")}</tbody></table>
+    <p class="hint" style="margin-top:8px">Price guide of ${esc(d.guide_date)}</p>`;
+}
+$("#sc-form").onsubmit = ev => { ev.preventDefault(); loadScan(); };
 
 // ---------- news ----------
 let newsData = null, newsTag = "";

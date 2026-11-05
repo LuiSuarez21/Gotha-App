@@ -31,6 +31,7 @@ import chart
 import main
 import market
 import portfolio
+import scanner
 import sealed
 from catalog import Catalog
 from history import History
@@ -168,12 +169,23 @@ def api_portfolio_remove(body):
     return {"ok": True}
 
 
+def api_scan(q):
+    guide_date, rows = scanner.scan(
+        min_price=_num(q.get("min")) or 5.0, rise=_num(q.get("rise")) or 25.0,
+        foil=q.get("foil") == "1", down=q.get("down") == "1",
+        limit=min(int(q.get("limit") or 25), 100))
+    return {"guide_date": guide_date, "items": [
+        {"name": n, "set": c, "trend": t, "avg7": a7, "avg30": a30, "change": ch}
+        for n, c, t, a7, a30, ch in rows]}
+
+
 def api_news(q):
     return market.news(refresh=q.get("refresh") == "1")
 
 
 GET = {"/api/search": api_search, "/api/info": api_info, "/api/sealed": api_sealed,
-       "/api/tracked": api_tracked, "/api/news": api_news, "/api/portfolio": api_portfolio}
+       "/api/tracked": api_tracked, "/api/news": api_news, "/api/portfolio": api_portfolio,
+       "/api/scan": api_scan}
 POST = {"/api/card": api_card, "/api/track": api_track, "/api/untrack": api_untrack,
         "/api/portfolio": api_portfolio_add, "/api/portfolio/remove": api_portfolio_remove}
 
