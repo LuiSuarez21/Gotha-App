@@ -8,6 +8,7 @@ Gotha shows **Cardmarket prices (EUR)** for Magic: The Gathering cards and seale
 - **Card prices**: every printing of a card, normal and foil, today and 7 / 15 days ago, with a 90-day chart.
 - **Sealed prices**: booster boxes, bundles, decks… Gotha saves their prices every day, because nobody publishes this history for free.
 - **Tracker and portfolio**: what you own, what you paid, its value today and your profit or loss.
+- **Scanner**: cards whose 7-day average is far above (or below) the 30-day one. Use the **Scanner** tab of the app or `python run.py scanner`.
 - **Price outlook** for sealed products: a simple score (price trend, product age, reprint risk, tournament play, news) that shows its reasons. It is not financial advice.
 - **Market news** from MTGGoldfish, Google News and Reddit.
 - **Phone alerts** when a price hits your target (off by default).
